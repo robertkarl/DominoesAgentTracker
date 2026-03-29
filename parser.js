@@ -91,6 +91,7 @@ function parseReviewTable(content) {
 }
 
 function classifyStatus(status) {
+  if (!status) return 'pending';
   const s = status.toUpperCase();
   if (['DONE', 'CLEAR', 'PASS', 'SHIPPED'].includes(s)) return 'completed';
   if (s.startsWith('SKIPPED')) return 'skipped';

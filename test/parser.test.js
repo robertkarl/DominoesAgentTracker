@@ -147,6 +147,11 @@ describe('classifyStatus', () => {
     assert.strictEqual(classifyStatus('—'), 'pending');
     assert.strictEqual(classifyStatus(''), 'pending');
   });
+
+  it('handles null and undefined without crashing', () => {
+    assert.strictEqual(classifyStatus(null), 'pending');
+    assert.strictEqual(classifyStatus(undefined), 'pending');
+  });
 });
 
 describe('parsePlan', () => {

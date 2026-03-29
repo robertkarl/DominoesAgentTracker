@@ -20,24 +20,32 @@ const sseClients = new Set();
 let debounceTimer = null;
 
 async function refreshPlans() {
-  cachedPlans = await loadAllPlans(GAUNTLETTE_DIR);
+  try {
+    cachedPlans = await loadAllPlans(GAUNTLETTE_DIR);
+  } catch (err) {
+    console.error(`ERROR refreshing plans: ${err.message}`);
+    cachedPlans = { plans: [], error: err.message };
+  }
   const data = JSON.stringify(cachedPlans);
   for (const res of sseClients) {
-    res.write(`data: ${data}\n\n`);
+    try {
+      res.write(`data: ${data}\n\n`);
+    } catch {
+      sseClients.delete(res);
+    }
   }
 }
 
 function serveStatic(req, res) {
   let filePath = req.url === '/' ? '/index.html' : req.url;
-  // Prevent directory traversal
-  filePath = path.normalize(filePath);
-  if (filePath.includes('..')) {
+  const fullPath = path.resolve(PUBLIC_DIR, '.' + path.normalize(filePath));
+  // Prevent directory traversal — resolved path must be under PUBLIC_DIR
+  if (!fullPath.startsWith(PUBLIC_DIR + path.sep) && fullPath !== PUBLIC_DIR) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
   }
 
-  const fullPath = path.join(PUBLIC_DIR, filePath);
   const ext = path.extname(fullPath);
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 

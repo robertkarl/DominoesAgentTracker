@@ -1,0 +1,216 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: #111;
+  border-bottom: 3px solid #e31837;
+}
+
+header h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4caf50;
+}
+
+.status-dot.disconnected {
+  background: #f44336;
+}
+
+main {
+  padding: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 80px 24px;
+  color: #666;
+}
+
+.empty-state h2 {
+  font-size: 20px;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.empty-state p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.empty-state code {
+  background: #2a2a2a;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+/* Plan card */
+.plan-card {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.plan-card.has-error {
+  border-color: #f59e0b;
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.plan-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.plan-name .repo {
+  color: #999;
+}
+
+.plan-name .separator {
+  color: #555;
+  margin: 0 6px;
+}
+
+.status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.status-badge.active,
+.status-badge.in-progress {
+  background: #1b5e20;
+  color: #4caf50;
+}
+
+.status-badge.shipped {
+  background: #0d47a1;
+  color: #42a5f5;
+}
+
+.status-badge.killed {
+  background: #b71c1c;
+  color: #ef5350;
+}
+
+.status-badge.unknown,
+.status-badge.error {
+  background: #333;
+  color: #888;
+}
+
+/* Progress bar */
+.progress-bar {
+  display: flex;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stage {
+  flex: 1;
+  text-align: center;
+  padding: 8px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  min-width: 0;
+  transition: background 0.3s;
+}
+
+.stage .stage-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage .stage-status {
+  font-size: 9px;
+  margin-top: 2px;
+  opacity: 0.7;
+}
+
+.stage.completed {
+  background: #e31837;
+  color: #fff;
+}
+
+.stage.skipped {
+  background: #333;
+  color: #777;
+  text-decoration: line-through;
+}
+
+.stage.pending {
+  background: #2a2a2a;
+  color: #555;
+}
+
+/* No stages */
+.no-stages {
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+
+/* Plan meta */
+.plan-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #666;
+}
+
+/* Error inline */
+.plan-error {
+  font-size: 12px;
+  color: #f59e0b;
+  margin-top: 8px;
+}
+
+.plan-error::before {
+  content: '⚠ ';
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

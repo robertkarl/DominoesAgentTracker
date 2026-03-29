@@ -1,0 +1,10 @@
+{
+  "name": "dominotracker",
+  "version": "0.1.0",
+  "description": "Domino's Pizza Tracker-style visualization of gauntlette pipeline progress",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/parser.test.js"
+  }
+}

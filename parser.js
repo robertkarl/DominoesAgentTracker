@@ -163,10 +163,20 @@ async function parsePlan(filePath) {
     const repo = path.basename(dir);
     const name = path.basename(filePath, '.md');
 
-    // If no review table, infer stages from the plan's frontmatter status
-    const finalStages = stages.length > 0
-      ? stages.map(s => ({ ...s, visual: classifyStatus(s.status) }))
-      : inferStagesFromStatus(frontmatter.status);
+    // SHIPPED plans: all pipeline stages are completed — the pizza has arrived
+    const isShipped = (frontmatter.status || '').toUpperCase() === 'SHIPPED';
+    const finalStages = isShipped
+      ? PIPELINE_STAGES.map(stage => ({
+          name: stage.name,
+          trigger: '',
+          runs: 1,
+          status: 'DONE',
+          findings: '—',
+          visual: 'completed',
+        }))
+      : stages.length > 0
+        ? stages.map(s => ({ ...s, visual: classifyStatus(s.status) }))
+        : inferStagesFromStatus(frontmatter.status);
 
     return {
       repo,

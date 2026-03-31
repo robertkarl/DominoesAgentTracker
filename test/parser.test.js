@@ -174,10 +174,14 @@ describe('parsePlan', () => {
     assert.strictEqual(plan.status, 'SHIPPED');
     assert.strictEqual(plan.title, 'Gauntlette Bugfixes');
     assert.strictEqual(plan.branch, 'master');
-    assert.strictEqual(plan.stages.length, 10); // includes Ship and duplicate QA
-    assert.strictEqual(plan.stages[0].visual, 'completed');
-    assert.strictEqual(plan.stages[7].visual, 'skipped'); // SKIPPED QA
-    assert.strictEqual(plan.stages[8].name, 'Ship');
+    // SHIPPED plans show all 11 standard pipeline stages as completed
+    assert.strictEqual(plan.stages.length, 11);
+    for (const stage of plan.stages) {
+      assert.strictEqual(stage.visual, 'completed');
+      assert.strictEqual(stage.status, 'DONE');
+    }
+    assert.strictEqual(plan.stages[0].name, 'Survey');
+    assert.strictEqual(plan.stages[10].name, 'Ship');
   });
 
   it('parses plan with no review table', async () => {

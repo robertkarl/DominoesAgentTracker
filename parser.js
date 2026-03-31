@@ -3,19 +3,29 @@ const path = require('path');
 
 function parseFrontmatter(content) {
   const lines = content.split('\n');
-  if (lines[0] !== '---') return { status: 'UNKNOWN' };
-
-  const result = {};
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === '---') break;
-    const colonIdx = lines[i].indexOf(':');
-    if (colonIdx !== -1) {
-      const key = lines[i].slice(0, colonIdx).trim();
-      const val = lines[i].slice(colonIdx + 1).trim();
-      result[key] = val;
+  if (lines[0] === '---') {
+    const result = {};
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i] === '---') break;
+      const colonIdx = lines[i].indexOf(':');
+      if (colonIdx !== -1) {
+        const key = lines[i].slice(0, colonIdx).trim();
+        const val = lines[i].slice(colonIdx + 1).trim();
+        result[key] = val;
+      }
     }
+    return { status: result.status || 'UNKNOWN', branch: result.branch || null };
   }
-  return { status: result.status || 'UNKNOWN', branch: result.branch || null };
+
+  // Fallback: detect inline bold metadata (e.g. **Phase:** /survey, **Status:** Active)
+  const phaseMatch = content.match(/\*\*Phase:\*\*\s*\/?(\S+)/);
+  const statusMatch = content.match(/\*\*Status:\*\*\s*(\S+)/);
+  const inlineStatus = phaseMatch ? phaseMatch[1] : statusMatch ? statusMatch[1] : null;
+  if (inlineStatus) {
+    return { status: inlineStatus.toUpperCase(), branch: null };
+  }
+
+  return { status: 'UNKNOWN' };
 }
 
 function parseTitle(content) {

@@ -17,7 +17,7 @@ describe('parseFrontmatter', () => {
     assert.strictEqual(result.branch, 'papercuts');
   });
 
-  it('returns UNKNOWN when no frontmatter', () => {
+  it('returns UNKNOWN when no frontmatter and no inline metadata', () => {
     const result = parseFrontmatter('# Just a title\nNo frontmatter here');
     assert.strictEqual(result.status, 'UNKNOWN');
   });
@@ -25,6 +25,16 @@ describe('parseFrontmatter', () => {
   it('returns UNKNOWN when frontmatter has no status', () => {
     const result = parseFrontmatter('---\nfoo: bar\n---\n');
     assert.strictEqual(result.status, 'UNKNOWN');
+  });
+
+  it('extracts status from inline **Phase:** metadata', () => {
+    const result = parseFrontmatter('# Title\n\n**Phase:** /survey\n**Project:** Foo');
+    assert.strictEqual(result.status, 'SURVEY');
+  });
+
+  it('extracts status from inline **Status:** metadata', () => {
+    const result = parseFrontmatter('# Title\n\n**Status:** Active\n');
+    assert.strictEqual(result.status, 'ACTIVE');
   });
 });
 

@@ -220,14 +220,25 @@ async function loadAllPlans(gauntletteDir) {
     }
   }
 
-  // Filter out shipped, unknown, and stale (>8 hours) plans
+  // Filter plans by freshness and status
   const STALE_MS = 8 * 60 * 60 * 1000;
+  const SHIPPED_VISIBLE_MS = 24 * 60 * 60 * 1000;
   const now = Date.now();
   const fresh = plans.filter(p => {
     const s = (p.status || '').toUpperCase();
-    if (s === 'SHIPPED' || s === 'UNKNOWN') return false;
-    if (p.lastModified && (now - new Date(p.lastModified).getTime()) > STALE_MS) return false;
-    return true;
+    const age = p.lastModified ? (now - new Date(p.lastModified).getTime()) : Infinity;
+
+    // UNKNOWN = no frontmatter, not a real gauntlette plan — always hide
+    if (s === 'UNKNOWN') return false;
+
+    // Recently modified files show regardless of status (including SHIPPED)
+    if (age <= STALE_MS) return true;
+
+    // SHIPPED plans stay visible for 24 hours after last modification
+    if (s === 'SHIPPED') return age <= SHIPPED_VISIBLE_MS;
+
+    // Everything else older than 8 hours is stale
+    return false;
   });
 
   // Sort: ACTIVE/IN PROGRESS first, then by lastModified descending

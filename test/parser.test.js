@@ -207,15 +207,19 @@ describe('parsePlan', () => {
 });
 
 describe('loadAllPlans', () => {
-  it('loads plans from real gauntlette directory (filters shipped/unknown/stale)', async () => {
+  it('loads plans from real gauntlette directory (filters stale/unknown)', async () => {
     const homedir = require('os').homedir();
     const result = await loadAllPlans(path.join(homedir, '.gauntlette'));
     assert.strictEqual(result.error, null);
-    // All returned plans should be non-shipped, non-unknown, and fresh
+    // UNKNOWN plans should never appear; SHIPPED plans may appear if recently modified
     for (const plan of result.plans) {
       const s = (plan.status || '').toUpperCase();
-      assert.notStrictEqual(s, 'SHIPPED', `${plan.repo}/${plan.name} should not be SHIPPED`);
       assert.notStrictEqual(s, 'UNKNOWN', `${plan.repo}/${plan.name} should not be UNKNOWN`);
+      if (s === 'SHIPPED') {
+        // SHIPPED plans are only shown if modified within 24 hours
+        const age = Date.now() - new Date(plan.lastModified).getTime();
+        assert.ok(age <= 24 * 60 * 60 * 1000, `${plan.repo}/${plan.name} is SHIPPED but older than 24h`);
+      }
     }
   });
 

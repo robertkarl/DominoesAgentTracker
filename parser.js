@@ -93,7 +93,8 @@ function parseReviewTable(content) {
 function classifyStatus(status) {
   if (!status) return 'pending';
   const s = status.toUpperCase();
-  if (['DONE', 'CLEAR', 'PASS', 'SHIPPED'].includes(s)) return 'completed';
+  if (['DONE', 'PASS', 'SHIPPED'].includes(s)) return 'completed';
+  if (s === 'CLEAR') return 'clear';
   if (s.startsWith('SKIPPED')) return 'skipped';
   return 'pending';
 }
@@ -174,8 +175,18 @@ async function loadAllPlans(gauntletteDir) {
     }
   }
 
+  // Filter out shipped, unknown, and stale (>8 hours) plans
+  const STALE_MS = 8 * 60 * 60 * 1000;
+  const now = Date.now();
+  const fresh = plans.filter(p => {
+    const s = (p.status || '').toUpperCase();
+    if (s === 'SHIPPED' || s === 'UNKNOWN') return false;
+    if (p.lastModified && (now - new Date(p.lastModified).getTime()) > STALE_MS) return false;
+    return true;
+  });
+
   // Sort: ACTIVE/IN PROGRESS first, then by lastModified descending
-  plans.sort((a, b) => {
+  fresh.sort((a, b) => {
     const aActive = a.status && ['ACTIVE', 'IN PROGRESS'].includes(a.status.toUpperCase());
     const bActive = b.status && ['ACTIVE', 'IN PROGRESS'].includes(b.status.toUpperCase());
     if (aActive && !bActive) return -1;
@@ -184,7 +195,7 @@ async function loadAllPlans(gauntletteDir) {
     return 0;
   });
 
-  return { plans, error: null };
+  return { plans: fresh, error: null };
 }
 
 module.exports = { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, parsePlan, loadAllPlans };

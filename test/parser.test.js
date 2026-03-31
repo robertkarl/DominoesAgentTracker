@@ -133,9 +133,12 @@ describe('parseReviewTable', () => {
 describe('classifyStatus', () => {
   it('classifies completed statuses', () => {
     assert.strictEqual(classifyStatus('DONE'), 'completed');
-    assert.strictEqual(classifyStatus('CLEAR'), 'completed');
     assert.strictEqual(classifyStatus('PASS'), 'completed');
     assert.strictEqual(classifyStatus('SHIPPED'), 'completed');
+  });
+
+  it('classifies clear as its own category', () => {
+    assert.strictEqual(classifyStatus('CLEAR'), 'clear');
   });
 
   it('classifies skipped statuses', () => {
@@ -181,8 +184,10 @@ describe('parsePlan', () => {
     assert.strictEqual(plan.status, 'ACTIVE');
     assert.strictEqual(plan.stages.length, 8);
     const completed = plan.stages.filter(s => s.visual === 'completed');
+    const clear = plan.stages.filter(s => s.visual === 'clear');
     const pending = plan.stages.filter(s => s.visual === 'pending');
-    assert.strictEqual(completed.length, 5);
+    assert.strictEqual(completed.length, 1); // DONE
+    assert.strictEqual(clear.length, 4);     // CLEAR stages
     assert.strictEqual(pending.length, 3);
   });
 
@@ -202,16 +207,16 @@ describe('parsePlan', () => {
 });
 
 describe('loadAllPlans', () => {
-  it('loads plans from real gauntlette directory', async () => {
+  it('loads plans from real gauntlette directory (filters shipped/unknown/stale)', async () => {
     const homedir = require('os').homedir();
     const result = await loadAllPlans(path.join(homedir, '.gauntlette'));
     assert.strictEqual(result.error, null);
-    assert.ok(result.plans.length > 0, 'should find at least one plan');
-
-    // Verify we found known plans
-    const repos = result.plans.map(p => p.repo);
-    assert.ok(repos.includes('brrnout'), 'should find brrnout');
-    assert.ok(repos.includes('gauntlette'), 'should find gauntlette');
+    // All returned plans should be non-shipped, non-unknown, and fresh
+    for (const plan of result.plans) {
+      const s = (plan.status || '').toUpperCase();
+      assert.notStrictEqual(s, 'SHIPPED', `${plan.repo}/${plan.name} should not be SHIPPED`);
+      assert.notStrictEqual(s, 'UNKNOWN', `${plan.repo}/${plan.name} should not be UNKNOWN`);
+    }
   });
 
   it('returns directory_missing for nonexistent dir', async () => {

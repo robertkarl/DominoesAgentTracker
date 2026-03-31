@@ -60,8 +60,6 @@
     status.className = 'stage-status';
     if (stage.visual === 'completed') {
       status.textContent = '✓';
-    } else if (stage.visual === 'skipped') {
-      status.textContent = 'skip';
     }
     div.appendChild(status);
 
@@ -86,19 +84,12 @@
 
     const sep = document.createElement('span');
     sep.className = 'separator';
-    sep.textContent = '/';
+    sep.textContent = ':';
     nameEl.appendChild(sep);
 
-    const branchOrName = document.createElement('span');
-    branchOrName.textContent = plan.branch || plan.name;
-    nameEl.appendChild(branchOrName);
-
-    if (plan.branch && plan.name !== plan.branch) {
-      const planLabel = document.createElement('span');
-      planLabel.className = 'repo';
-      planLabel.textContent = ' (' + plan.name + ')';
-      nameEl.appendChild(planLabel);
-    }
+    const planName = document.createElement('span');
+    planName.textContent = plan.name;
+    nameEl.appendChild(planName);
 
     header.appendChild(nameEl);
 
@@ -109,11 +100,14 @@
 
     card.appendChild(header);
 
-    // Progress bar
-    if (plan.stages.length > 0) {
+    // Progress bar — only show completed (DONE/PASS/SHIPPED) and pending stages
+    const visibleStages = plan.stages.filter(function (s) {
+      return s.visual === 'completed' || s.visual === 'pending';
+    });
+    if (visibleStages.length > 0) {
       const bar = document.createElement('div');
       bar.className = 'progress-bar';
-      for (const stage of plan.stages) {
+      for (const stage of visibleStages) {
         bar.appendChild(renderStage(stage));
       }
       card.appendChild(bar);

@@ -58,7 +58,7 @@
 
     const status = document.createElement('div');
     status.className = 'stage-status';
-    if (stage.visual === 'completed') {
+    if (stage.visual === 'completed' || stage.visual === 'clear') {
       status.textContent = '✓';
     }
     div.appendChild(status);
@@ -100,9 +100,10 @@
 
     card.appendChild(header);
 
-    // Progress bar — only show completed (DONE/PASS/SHIPPED) and pending stages
+    // Progress bar — show completed, clear (reviewed, nothing to do), and pending stages
+    // Hide: skipped (with parenthetical reason) — those aren't real pipeline steps
     const visibleStages = plan.stages.filter(function (s) {
-      return s.visual === 'completed' || s.visual === 'pending';
+      return s.visual === 'completed' || s.visual === 'clear' || s.visual === 'pending';
     });
     if (visibleStages.length > 0) {
       const bar = document.createElement('div');

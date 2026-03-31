@@ -90,6 +90,46 @@ function parseReviewTable(content) {
   return stages;
 }
 
+// Canonical pipeline stage order and their aliases as frontmatter status values
+const PIPELINE_STAGES = [
+  { name: 'Survey', aliases: ['SURVEY'] },
+  { name: 'Product Review', aliases: ['PRODUCT-REVIEW', 'PRODUCT REVIEW'] },
+  { name: 'UX Review', aliases: ['UX-REVIEW', 'UX REVIEW'] },
+  { name: 'Architecture', aliases: ['ARCH-REVIEW', 'ARCH REVIEW', 'ARCHITECTURE'] },
+  { name: 'Fresh Eyes', aliases: ['FRESH-EYES', 'FRESH EYES'] },
+  { name: 'CSO Review', aliases: ['CSO-REVIEW', 'CSO REVIEW'] },
+  { name: 'Implementation', aliases: ['IMPLEMENT', 'IMPLEMENTATION'] },
+  { name: 'Code Review', aliases: ['CODE-REVIEW', 'CODE REVIEW'] },
+  { name: 'QA', aliases: ['QUALITY-CHECK', 'QA'] },
+  { name: 'Human Review', aliases: ['HUMAN-REVIEW', 'HUMAN REVIEW'] },
+  { name: 'Ship', aliases: ['SHIP-IT', 'SHIP'] },
+];
+
+function inferStagesFromStatus(planStatus) {
+  if (!planStatus) return [];
+  const upper = planStatus.toUpperCase();
+
+  // Find which pipeline stage matches the plan's frontmatter status
+  let currentIdx = -1;
+  for (let i = 0; i < PIPELINE_STAGES.length; i++) {
+    if (PIPELINE_STAGES[i].aliases.includes(upper)) {
+      currentIdx = i;
+      break;
+    }
+  }
+  if (currentIdx === -1) return [];
+
+  // Everything before current stage is done, current is in-progress, rest is pending
+  return PIPELINE_STAGES.map((stage, i) => ({
+    name: stage.name,
+    trigger: '',
+    runs: i < currentIdx ? 1 : (i === currentIdx ? 1 : 0),
+    status: i < currentIdx ? 'DONE' : (i === currentIdx ? 'DONE' : '—'),
+    findings: '—',
+    visual: i <= currentIdx ? 'completed' : 'pending',
+  }));
+}
+
 function classifyStatus(status) {
   if (!status) return 'pending';
   const s = status.toUpperCase();
@@ -113,6 +153,11 @@ async function parsePlan(filePath) {
     const repo = path.basename(dir);
     const name = path.basename(filePath, '.md');
 
+    // If no review table, infer stages from the plan's frontmatter status
+    const finalStages = stages.length > 0
+      ? stages.map(s => ({ ...s, visual: classifyStatus(s.status) }))
+      : inferStagesFromStatus(frontmatter.status);
+
     return {
       repo,
       name,
@@ -122,7 +167,7 @@ async function parsePlan(filePath) {
       title: title || name,
       vision: vision ? vision.slice(0, 200) : null,
       branch: branch || null,
-      stages: stages.map(s => ({ ...s, visual: classifyStatus(s.status) })),
+      stages: finalStages,
       error: null,
     };
   } catch (err) {
@@ -198,4 +243,4 @@ async function loadAllPlans(gauntletteDir) {
   return { plans: fresh, error: null };
 }
 
-module.exports = { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, parsePlan, loadAllPlans };
+module.exports = { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, inferStagesFromStatus, PIPELINE_STAGES, parsePlan, loadAllPlans };

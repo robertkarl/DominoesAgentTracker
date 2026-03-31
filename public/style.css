@@ -166,7 +166,8 @@ main {
   opacity: 0.7;
 }
 
-.stage.completed {
+.stage.completed,
+.stage.clear {
   background: #e31837;
   color: #fff;
 }

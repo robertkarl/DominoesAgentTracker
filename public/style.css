@@ -5,9 +5,9 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-  background: #1a1a1a;
-  color: #e0e0e0;
+  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  background: #006491;
+  color: #fff;
   min-height: 100vh;
 }
 
@@ -15,32 +15,33 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
-  background: #111;
+  padding: 12px 24px;
+  background: #fff;
   border-bottom: 3px solid #e31837;
 }
 
 header h1 {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #006491;
+  text-transform: uppercase;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #4caf50;
 }
 
 .status-dot.disconnected {
-  background: #f44336;
+  background: #e31837;
 }
 
 main {
-  padding: 24px;
-  max-width: 900px;
+  padding: 32px 24px;
+  max-width: 960px;
   margin: 0 auto;
 }
 
@@ -48,34 +49,31 @@ main {
 .empty-state {
   text-align: center;
   padding: 80px 24px;
-  color: #666;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .empty-state h2 {
-  font-size: 20px;
-  color: #888;
+  font-size: 22px;
+  color: #fff;
   margin-bottom: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
 }
 
 .empty-state p {
   font-size: 14px;
-  line-height: 1.6;
-}
-
-.empty-state code {
-  background: #2a2a2a;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 13px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* Plan card */
 .plan-card {
-  background: #222;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
+  background: rgba(0, 80, 120, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .plan-card.has-error {
@@ -86,107 +84,131 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .plan-name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 900;
   color: #fff;
+  letter-spacing: 0.5px;
 }
 
 .plan-name .repo {
-  color: #999;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .plan-name .separator {
-  color: #555;
+  color: rgba(255, 255, 255, 0.3);
   margin: 0 6px;
 }
 
 .status-badge {
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  padding: 3px 8px;
-  border-radius: 3px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  padding: 4px 10px;
+  border-radius: 4px;
   text-transform: uppercase;
 }
 
 .status-badge.active,
 .status-badge.in-progress {
-  background: #1b5e20;
-  color: #4caf50;
+  background: rgba(76, 175, 80, 0.25);
+  color: #6fcf73;
 }
 
 .status-badge.shipped {
-  background: #0d47a1;
-  color: #42a5f5;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
 }
 
 .status-badge.killed {
-  background: #b71c1c;
+  background: rgba(227, 24, 55, 0.25);
   color: #ef5350;
 }
 
 .status-badge.unknown,
 .status-badge.error {
-  background: #333;
-  color: #888;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
 }
 
-/* Progress bar */
+/* Progress bar — Domino's tracker pill */
 .progress-bar {
   display: flex;
-  gap: 2px;
-  border-radius: 4px;
+  border-radius: 30px;
   overflow: hidden;
+  background: rgba(0, 60, 90, 0.7);
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .stage {
   flex: 1;
   text-align: center;
-  padding: 8px 4px;
+  padding: 12px 4px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 900;
   line-height: 1.3;
   min-width: 0;
   transition: background 0.3s;
+  position: relative;
+  letter-spacing: 0.3px;
 }
 
 .stage .stage-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-transform: uppercase;
+  font-size: 10px;
 }
 
 .stage .stage-status {
-  font-size: 9px;
-  margin-top: 2px;
-  opacity: 0.7;
+  font-size: 14px;
+  margin-top: 3px;
+  opacity: 0.9;
+}
+
+.stage .stage-number {
+  font-size: 20px;
+  font-weight: 900;
+  display: block;
+  margin-bottom: 2px;
 }
 
 .stage.completed,
 .stage.clear {
-  background: #e31837;
+  background: #0b5fa5;
   color: #fff;
 }
 
+.stage.current {
+  background: #e31837;
+  color: #fff;
+  z-index: 1;
+  /* Angled "active" look inspired by the Domino's bake stage */
+  clip-path: polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%);
+  margin: -1px -4px;
+  padding: 12px 12px;
+}
+
 .stage.skipped {
-  background: #333;
-  color: #777;
+  background: rgba(0, 50, 75, 0.5);
+  color: rgba(255, 255, 255, 0.3);
   text-decoration: line-through;
 }
 
 .stage.pending {
-  background: #2a2a2a;
-  color: #555;
+  background: rgba(0, 50, 75, 0.4);
+  color: rgba(255, 255, 255, 0.35);
 }
 
 /* No stages */
 .no-stages {
-  font-size: 12px;
-  color: #555;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.35);
   font-style: italic;
 }
 
@@ -194,10 +216,12 @@ main {
 .plan-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-  font-size: 11px;
-  color: #666;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 400;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 /* Error inline */
@@ -205,6 +229,8 @@ main {
   font-size: 12px;
   color: #f59e0b;
   margin-top: 8px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 400;
 }
 
 .plan-error::before {
@@ -213,5 +239,5 @@ main {
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.7; }
 }

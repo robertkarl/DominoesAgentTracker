@@ -46,22 +46,20 @@
     return div;
   }
 
-  function renderStage(stage) {
+  function renderStage(stage, index) {
     const div = document.createElement('div');
     div.className = 'stage ' + stage.visual;
+
+    const num = document.createElement('span');
+    num.className = 'stage-number';
+    num.textContent = index + 1;
+    div.appendChild(num);
 
     const name = document.createElement('div');
     name.className = 'stage-name';
     name.textContent = stage.name;
     name.title = stage.name + ': ' + stage.status;
     div.appendChild(name);
-
-    const status = document.createElement('div');
-    status.className = 'stage-status';
-    if (stage.visual === 'completed' || stage.visual === 'clear') {
-      status.textContent = '✓';
-    }
-    div.appendChild(status);
 
     return div;
   }
@@ -100,16 +98,24 @@
 
     card.appendChild(header);
 
-    // Progress bar — show completed, clear (reviewed, nothing to do), and pending stages
-    // Hide: skipped (with parenthetical reason) — those aren't real pipeline steps
+    // Progress bar — show completed, current, and future stages
+    // Hide: skipped stages (no file, but later stages completed — jumped over)
     const visibleStages = plan.stages.filter(function (s) {
       return s.visual === 'completed' || s.visual === 'clear' || s.visual === 'pending';
     });
+    // Mark the first pending stage as "current" — that's where we are in the pipeline
+    var currentFound = false;
+    for (var vi = 0; vi < visibleStages.length; vi++) {
+      if (visibleStages[vi].visual === 'pending' && !currentFound) {
+        visibleStages[vi] = Object.assign({}, visibleStages[vi], { visual: 'current' });
+        currentFound = true;
+      }
+    }
     if (visibleStages.length > 0) {
       const bar = document.createElement('div');
       bar.className = 'progress-bar';
-      for (const stage of visibleStages) {
-        bar.appendChild(renderStage(stage));
+      for (let si = 0; si < visibleStages.length; si++) {
+        bar.appendChild(renderStage(visibleStages[si], si));
       }
       card.appendChild(bar);
     } else if (!plan.error) {

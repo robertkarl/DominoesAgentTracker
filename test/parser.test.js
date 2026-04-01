@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, parsePlan, loadAllPlans } = require('../parser');
+const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, mergeStageFiles, PIPELINE_STAGES, parsePlan, loadAllPlans } = require('../parser');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
@@ -217,6 +217,80 @@ describe('parsePlan', () => {
     const plan = await parsePlan(path.join(FIXTURES, 'nonexistent.md'));
     assert.notStrictEqual(plan.error, null);
     assert.strictEqual(plan.status, 'ERROR');
+  });
+});
+
+describe('mergeStageFiles', () => {
+  it('merges stage files into a single plan with correct pipeline', () => {
+    const stageFiles = [
+      { phase: 'survey', status: 'COMPLETE', title: 'My Survey', name: 'survey', lastModified: '2026-04-01T16:49:00Z', vision: null, branch: null, filePath: '/tmp/survey.md' },
+      { phase: 'product-review', status: 'COMPLETE', title: 'Product Review', name: 'product-review', lastModified: '2026-04-01T16:51:00Z', vision: null, branch: null, filePath: '/tmp/product-review.md' },
+      { phase: 'arch-review', status: 'COMPLETE', title: 'Arch Review', name: 'arch-review', lastModified: '2026-04-01T17:03:00Z', vision: null, branch: null, filePath: '/tmp/arch-review.md' },
+      { phase: 'fresh-eyes', status: 'COMPLETE', title: 'Fresh Eyes', name: 'fresh-eyes', lastModified: '2026-04-01T17:06:00Z', vision: null, branch: null, filePath: '/tmp/fresh-eyes.md' },
+      { phase: 'code-review', status: 'COMPLETE', title: 'Code Review', name: 'code-review', lastModified: '2026-04-01T17:17:00Z', vision: null, branch: null, filePath: '/tmp/code-review.md' },
+      { phase: 'quality-check', status: 'COMPLETE', title: 'QA Check', name: 'quality-check', lastModified: '2026-04-01T17:21:00Z', vision: null, branch: null, filePath: '/tmp/quality-check.md' },
+    ];
+
+    const merged = mergeStageFiles(stageFiles, 'cookedbook-ai-open', 'cookedbook-ai-open');
+
+    assert.strictEqual(merged.status, 'ACTIVE'); // not all stages done
+    assert.strictEqual(merged.stages.length, 11); // all pipeline stages
+    assert.strictEqual(merged.repo, 'cookedbook-ai-open');
+
+    // Check stage classifications
+    const completed = merged.stages.filter(s => s.visual === 'completed');
+    const skipped = merged.stages.filter(s => s.visual === 'skipped');
+    const pending = merged.stages.filter(s => s.visual === 'pending');
+    assert.strictEqual(completed.length, 6); // survey, product, arch, fresh-eyes, code-review, qa
+    assert.strictEqual(skipped.length, 3);   // ux, cso, implement (jumped over — later stages completed)
+    assert.strictEqual(pending.length, 2);   // human, ship (genuinely upcoming)
+
+    // Verify specific stages
+    assert.strictEqual(merged.stages[0].visual, 'completed'); // Survey
+    assert.strictEqual(merged.stages[2].visual, 'skipped');   // UX Review (no file, but later stages done)
+    assert.strictEqual(merged.stages[3].visual, 'completed'); // Architecture
+    assert.strictEqual(merged.stages[5].visual, 'skipped');   // CSO Review (skipped)
+    assert.strictEqual(merged.stages[6].visual, 'skipped');   // Implementation (skipped)
+    assert.strictEqual(merged.stages[9].visual, 'pending');   // Human Review (upcoming)
+    assert.strictEqual(merged.stages[10].visual, 'pending');  // Ship (upcoming)
+  });
+
+  it('marks all done as SHIPPED when every stage has a file', () => {
+    const allPhases = ['survey', 'product-review', 'ux-review', 'arch-review', 'fresh-eyes', 'cso-review', 'implement', 'code-review', 'quality-check', 'human-review', 'ship-it'];
+    const stageFiles = allPhases.map((phase, i) => ({
+      phase, status: 'COMPLETE', title: phase, name: phase,
+      lastModified: `2026-04-01T${String(10 + i).padStart(2, '0')}:00:00Z`,
+      vision: null, branch: null, filePath: `/tmp/${phase}.md`,
+    }));
+
+    const merged = mergeStageFiles(stageFiles, 'test-repo', 'test-project');
+    assert.strictEqual(merged.status, 'SHIPPED');
+    assert.strictEqual(merged.stages.every(s => s.visual === 'completed'), true);
+  });
+
+  it('uses survey file title as display title', () => {
+    const stageFiles = [
+      { phase: 'survey', status: 'COMPLETE', title: 'My Cool Feature Survey', name: 'survey', lastModified: '2026-04-01T10:00:00Z', vision: 'A vision', branch: 'feature-branch', filePath: '/tmp/survey.md' },
+      { phase: 'product-review', status: 'COMPLETE', title: 'Product Review', name: 'product-review', lastModified: '2026-04-01T11:00:00Z', vision: null, branch: null, filePath: '/tmp/product-review.md' },
+    ];
+
+    const merged = mergeStageFiles(stageFiles, 'repo', 'project');
+    assert.strictEqual(merged.title, 'My Cool Feature Survey');
+    assert.strictEqual(merged.branch, 'feature-branch');
+    assert.strictEqual(merged.vision, 'A vision');
+  });
+});
+
+describe('loadAllPlans (multi-file)', () => {
+  it('merges stage files from cookedbook-ai-open into one plan with stages', async () => {
+    const homedir = require('os').homedir();
+    const result = await loadAllPlans(path.join(homedir, '.gauntlette'));
+    const plan = result.plans.find(p => p.project === 'cookedbook-ai-open');
+    assert.ok(plan, 'cookedbook-ai-open plan should exist');
+    assert.ok(plan.stages.length > 0, 'merged plan should have stages');
+    assert.strictEqual(plan.stages.length, 11, 'should have all 11 pipeline stages');
+    const completed = plan.stages.filter(s => s.visual === 'completed');
+    assert.ok(completed.length >= 5, 'should have at least 5 completed stages');
   });
 });
 

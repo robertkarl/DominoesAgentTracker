@@ -14,7 +14,7 @@ function parseFrontmatter(content) {
         result[key] = val;
       }
     }
-    return { status: result.status || 'UNKNOWN', branch: result.branch || null };
+    return { status: result.status || 'UNKNOWN', branch: result.branch || null, phase: result.phase || null, project: result.project || null };
   }
 
   // Fallback: detect inline bold metadata (e.g. **Phase:** /survey, **Status:** Active)
@@ -22,10 +22,10 @@ function parseFrontmatter(content) {
   const statusMatch = content.match(/\*\*Status:\*\*\s*(\S+)/);
   const inlineStatus = phaseMatch ? phaseMatch[1] : statusMatch ? statusMatch[1] : null;
   if (inlineStatus) {
-    return { status: inlineStatus.toUpperCase(), branch: null };
+    return { status: inlineStatus.toUpperCase(), branch: null, phase: null, project: null };
   }
 
-  return { status: 'UNKNOWN' };
+  return { status: 'UNKNOWN', phase: null, project: null };
 }
 
 function parseTitle(content) {
@@ -184,6 +184,8 @@ async function parsePlan(filePath) {
       filePath,
       lastModified: stat.mtime.toISOString(),
       status: frontmatter.status,
+      phase: frontmatter.phase,
+      project: frontmatter.project,
       title: title || name,
       vision: vision ? vision.slice(0, 200) : null,
       branch: branch || null,
@@ -209,6 +211,111 @@ async function parsePlan(filePath) {
   }
 }
 
+function mergeStageFiles(stageFiles, repoName, projectName) {
+  // Build a set of completed phase aliases from the individual files
+  const completedPhases = new Set();
+  let latestModified = null;
+  let title = null;
+  let vision = null;
+  let branch = null;
+  let latestFile = null;
+
+  for (const sf of stageFiles) {
+    if (sf.phase) {
+      const upper = sf.phase.toUpperCase();
+      completedPhases.add(upper);
+    }
+    if (sf.lastModified && (!latestModified || sf.lastModified > latestModified)) {
+      latestModified = sf.lastModified;
+      latestFile = sf;
+    }
+    if (!title && sf.title && sf.title !== sf.name) title = sf.title;
+    if (!vision && sf.vision) vision = sf.vision;
+    if (!branch && sf.branch) branch = sf.branch;
+  }
+
+  // Find the furthest-along stage to determine overall status
+  let furthestIdx = -1;
+  for (const phase of completedPhases) {
+    for (let i = 0; i < PIPELINE_STAGES.length; i++) {
+      if (PIPELINE_STAGES[i].aliases.includes(phase)) {
+        if (i > furthestIdx) furthestIdx = i;
+        break;
+      }
+    }
+  }
+
+  // Build pipeline stages: completed if we have a file, skipped if jumped over, pending if ahead
+  // A stage is "skipped" if it has no file but a later stage does (it was passed over).
+  // A stage is "pending" if it has no file and no later stage has a file (it's next/future).
+  const hasFileFlags = PIPELINE_STAGES.map(stage => stage.aliases.some(a => completedPhases.has(a)));
+
+  // Find the index of the last completed stage
+  let lastCompletedIdx = -1;
+  for (let i = hasFileFlags.length - 1; i >= 0; i--) {
+    if (hasFileFlags[i]) { lastCompletedIdx = i; break; }
+  }
+
+  const stages = PIPELINE_STAGES.map((stage, i) => {
+    const hasFile = hasFileFlags[i];
+    let visual;
+    if (hasFile) {
+      visual = 'completed';
+    } else if (i < lastCompletedIdx) {
+      // No file, but a later stage was completed — this was skipped
+      visual = 'skipped';
+    } else {
+      // No file, no later completed stage — genuinely pending/upcoming
+      visual = 'pending';
+    }
+    return {
+      name: stage.name,
+      trigger: '',
+      runs: hasFile ? 1 : 0,
+      status: hasFile ? 'DONE' : '—',
+      findings: '—',
+      visual,
+    };
+  });
+
+  // Determine overall plan status
+  // If ship-it stage has a file, it's shipped — skipped stages don't block that
+  const shipStageIdx = PIPELINE_STAGES.findIndex(s => s.aliases.includes('SHIP-IT'));
+  const shipHasFile = shipStageIdx !== -1 && hasFileFlags[shipStageIdx];
+  const allDone = stages.every(s => s.visual === 'completed');
+  const overallStatus = (allDone || shipHasFile) ? 'SHIPPED' : 'ACTIVE';
+
+  // If shipped, mark all stages as completed — the pizza has arrived
+  if (overallStatus === 'SHIPPED') {
+    for (const s of stages) {
+      s.visual = 'completed';
+      s.status = 'DONE';
+      s.runs = 1;
+    }
+  }
+
+  // Use the latest file's title, falling back to project name
+  const surveyFile = stageFiles.find(sf => sf.phase && sf.phase.toUpperCase() === 'SURVEY');
+  const displayTitle = (surveyFile && surveyFile.title && surveyFile.title !== surveyFile.name)
+    ? surveyFile.title
+    : title || projectName;
+
+  return {
+    repo: repoName,
+    name: projectName,
+    filePath: latestFile ? latestFile.filePath : stageFiles[0].filePath,
+    lastModified: latestModified,
+    status: overallStatus,
+    phase: null,
+    project: projectName,
+    title: displayTitle,
+    vision: vision,
+    branch: branch,
+    stages: stages,
+    error: null,
+  };
+}
+
 async function loadAllPlans(gauntletteDir) {
   const resolvedDir = path.resolve(gauntletteDir);
 
@@ -232,11 +339,36 @@ async function loadAllPlans(gauntletteDir) {
       continue;
     }
 
+    const repoParsed = [];
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
       const filePath = path.join(repoDir, file);
       const plan = await parsePlan(filePath);
-      plans.push(plan);
+      repoParsed.push(plan);
+    }
+
+    // Detect multi-file plans: files with a `phase` field are individual stage files
+    const stageFiles = repoParsed.filter(p => p.phase);
+    const standaloneFiles = repoParsed.filter(p => !p.phase);
+
+    if (stageFiles.length > 0) {
+      // Group stage files by project (or all together if no project field)
+      const byProject = {};
+      for (const sf of stageFiles) {
+        const key = sf.project || repo.name;
+        if (!byProject[key]) byProject[key] = [];
+        byProject[key].push(sf);
+      }
+
+      for (const [projectName, projectFiles] of Object.entries(byProject)) {
+        const merged = mergeStageFiles(projectFiles, repo.name, projectName);
+        plans.push(merged);
+      }
+    }
+
+    // Standalone files (no phase) are treated as individual plans
+    for (const p of standaloneFiles) {
+      plans.push(p);
     }
   }
 
@@ -274,4 +406,4 @@ async function loadAllPlans(gauntletteDir) {
   return { plans: fresh, error: null };
 }
 
-module.exports = { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, inferStagesFromStatus, PIPELINE_STAGES, parsePlan, loadAllPlans };
+module.exports = { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, inferStagesFromStatus, mergeStageFiles, PIPELINE_STAGES, parsePlan, loadAllPlans };

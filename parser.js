@@ -285,15 +285,6 @@ function mergeStageFiles(stageFiles, repoName, projectName) {
   const allDone = stages.every(s => s.visual === 'completed');
   const overallStatus = (allDone || shipHasFile) ? 'SHIPPED' : 'ACTIVE';
 
-  // If shipped, mark all stages as completed — the pizza has arrived
-  if (overallStatus === 'SHIPPED') {
-    for (const s of stages) {
-      s.visual = 'completed';
-      s.status = 'DONE';
-      s.runs = 1;
-    }
-  }
-
   // Use the latest file's title, falling back to project name
   const surveyFile = stageFiles.find(sf => sf.phase && sf.phase.toUpperCase() === 'SURVEY');
   const displayTitle = (surveyFile && surveyFile.title && surveyFile.title !== surveyFile.name)

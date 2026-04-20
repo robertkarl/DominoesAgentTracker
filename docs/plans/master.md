@@ -200,8 +200,8 @@ Note: screenshot.png captured via lookingglass and committed.
 | Fresh Eyes | `/gauntlette-fresh-eyes` | 0 | — | — |
 | Implementation | `/gauntlette-implement` | 1 | DONE | CSS parallelogram fix (3 properties removed from .stage.current), README.md created. 39/39 tests pass. Commit 7fc2eaa. Human gate remaining: screenshot + tag + push. |
 | Code Review | `/gauntlette-code-review` | 1 | PASS | Small diff (3 CSS lines + README). Found and fixed: current-stage highlight logic was marking skipped stages as current (app.js). Fixed README clone URL. Dead z-index on .stage.current noted (harmless). |
-| QA | `/gauntlette-quality-check` | 0 | — | — |
+| QA | `/gauntlette-quality-check` | 1 | PASS | 6/6 tests pass. 1 bug found+fixed: screenshot.png excluded by *.png gitignore (README image would 404 on GitHub). Also cleaned up blanket *.jpg/*.png rules. SSE, CSS fix, current-stage highlight all verified. |
 | Human Review | `/gauntlette-human-review` | 0 | — | — |
 | Ship It | `/gauntlette-ship-it` | 0 | — | — |
 
-**VERDICT:** REVIEWING — Code review PASS. Proceed to /gauntlette-quality-check or ship.
+**VERDICT:** QA PASS — all checks green. Proceed to /gauntlette-human-review or /gauntlette-ship-it.

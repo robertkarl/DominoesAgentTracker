@@ -19,9 +19,16 @@
     if (!status) return 'unknown';
     const s = status.toUpperCase();
     if (s === 'ACTIVE' || s === 'IN PROGRESS') return 'active';
+    if (s === 'APPROVED') return 'approved';
+    if (s === 'DRAFT') return 'draft';
+    if (s === 'SUCCESS') return 'success';
     if (s === 'SHIPPED') return 'shipped';
     if (s === 'KILLED') return 'killed';
     return 'unknown';
+  }
+
+  function sourceBadgeClass(source) {
+    return source === 'gstack' ? 'gstack' : 'gauntlette';
   }
 
   function renderEmpty(error) {
@@ -33,14 +40,14 @@
 
     const p = document.createElement('p');
     if (error === 'directory_missing') {
-      p.textContent = '~/.gauntlette/ is empty or missing.';
+      p.textContent = '~/.gauntlette/ is empty or missing, and no recent gstack workflows were found.';
     } else {
-      p.textContent = 'No plan files found.';
+      p.textContent = 'No recent gauntlette or gstack workflows found.';
     }
     div.appendChild(p);
 
     const p2 = document.createElement('p');
-    p2.textContent = 'Run /survey in a project to start tracking.';
+    p2.textContent = 'Run /survey or generate a gstack review doc to start tracking.';
     div.appendChild(p2);
 
     return div;
@@ -91,17 +98,27 @@
 
     header.appendChild(nameEl);
 
+    const badges = document.createElement('div');
+    badges.className = 'plan-badges';
+
+    const source = document.createElement('span');
+    source.className = 'source-badge ' + sourceBadgeClass(plan.source);
+    source.textContent = plan.source || 'gauntlette';
+    badges.appendChild(source);
+
     const badge = document.createElement('span');
     badge.className = 'status-badge ' + statusBadgeClass(plan.status);
     badge.textContent = plan.status;
-    header.appendChild(badge);
+    badges.appendChild(badge);
+
+    header.appendChild(badges);
 
     card.appendChild(header);
 
     // Progress bar — show completed, current, and future stages
     // Hide: skipped stages (no file, but later stages completed — jumped over)
     const visibleStages = plan.stages.filter(function (s) {
-      return s.visual === 'completed' || s.visual === 'clear' || s.visual === 'pending';
+      return s.visual === 'completed' || s.visual === 'clear' || s.visual === 'issues' || s.visual === 'pending';
     });
     // Mark the first pending stage as "current" — that's where we are in the pipeline
     var currentFound = false;
@@ -121,7 +138,7 @@
     } else if (!plan.error) {
       const noStages = document.createElement('div');
       noStages.className = 'no-stages';
-      noStages.textContent = 'No review pipeline';
+      noStages.textContent = 'No tracked review pipeline';
       card.appendChild(noStages);
     }
 
@@ -147,6 +164,12 @@
       const title = document.createElement('span');
       title.textContent = plan.title;
       meta.appendChild(title);
+    }
+
+    if (plan.generatedBy) {
+      const generatedBy = document.createElement('span');
+      generatedBy.textContent = 'From ' + plan.generatedBy;
+      meta.appendChild(generatedBy);
     }
 
     card.appendChild(meta);

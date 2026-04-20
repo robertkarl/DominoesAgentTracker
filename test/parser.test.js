@@ -1,7 +1,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, mergeStageFiles, PIPELINE_STAGES, parsePlan, loadAllPlans } = require('../parser');
+const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, mergeStageFiles, PIPELINE_STAGES, parsePlan, loadAllPlans, loadAllGstackPlans } = require('../parser');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
@@ -35,6 +37,12 @@ describe('parseFrontmatter', () => {
   it('extracts status from inline **Status:** metadata', () => {
     const result = parseFrontmatter('# Title\n\n**Status:** Active\n');
     assert.strictEqual(result.status, 'ACTIVE');
+  });
+
+  it('extracts status from loose Status metadata', () => {
+    const result = parseFrontmatter('# Title\n\nStatus: Approved\nBranch: main\nRepo: dominotracker\n');
+    assert.strictEqual(result.status, 'APPROVED');
+    assert.strictEqual(result.branch, 'main');
   });
 });
 
@@ -124,6 +132,21 @@ describe('parseReviewTable', () => {
     assert.strictEqual(stages[2].name, 'QA');
   });
 
+  it('parses gstack review tables with a Why column', () => {
+    const content = `## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Eng Review | \`/gstack-plan-eng-review\` | Architecture & tests | 1 | CLEAR (PLAN) | 12 issues |
+| Outside Voice | codex-plan-review | Independent challenge | 1 | ISSUES | 4 tensions resolved |`;
+
+    const stages = parseReviewTable(content);
+    assert.strictEqual(stages.length, 2);
+    assert.strictEqual(stages[0].why, 'Architecture & tests');
+    assert.strictEqual(stages[0].runs, 1);
+    assert.strictEqual(stages[1].status, 'ISSUES');
+  });
+
   it('skips malformed rows', () => {
     const content = `## Gauntlette Review Report
 
@@ -149,6 +172,8 @@ describe('classifyStatus', () => {
 
   it('classifies clear as its own category', () => {
     assert.strictEqual(classifyStatus('CLEAR'), 'clear');
+    assert.strictEqual(classifyStatus('CLEAR (PLAN)'), 'clear');
+    assert.strictEqual(classifyStatus('CLEAN (FULL)'), 'clear');
   });
 
   it('classifies skipped statuses', () => {
@@ -159,6 +184,11 @@ describe('classifyStatus', () => {
   it('classifies pending statuses', () => {
     assert.strictEqual(classifyStatus('—'), 'pending');
     assert.strictEqual(classifyStatus(''), 'pending');
+  });
+
+  it('classifies issue-like statuses', () => {
+    assert.strictEqual(classifyStatus('ISSUES'), 'issues');
+    assert.strictEqual(classifyStatus('issues_found (claude)'), 'issues');
   });
 
   it('handles null and undefined without crashing', () => {
@@ -217,6 +247,20 @@ describe('parsePlan', () => {
     const plan = await parsePlan(path.join(FIXTURES, 'nonexistent.md'));
     assert.notStrictEqual(plan.error, null);
     assert.strictEqual(plan.status, 'ERROR');
+  });
+
+  it('parses a gstack workflow doc', async () => {
+    const plan = await parsePlan(path.join(FIXTURES, 'gstack-design.md'), { source: 'gstack' });
+    assert.strictEqual(plan.error, null);
+    assert.strictEqual(plan.source, 'gstack');
+    assert.strictEqual(plan.repo, 'yah');
+    assert.strictEqual(plan.name, 'unknown');
+    assert.strictEqual(plan.status, 'APPROVED');
+    assert.strictEqual(plan.branch, 'unknown');
+    assert.strictEqual(plan.generatedBy, '/office-hours');
+    assert.strictEqual(plan.stages.length, 3);
+    assert.strictEqual(plan.stages[1].visual, 'clear');
+    assert.strictEqual(plan.stages[2].visual, 'issues');
   });
 });
 
@@ -282,15 +326,92 @@ describe('mergeStageFiles', () => {
 });
 
 describe('loadAllPlans (multi-file)', () => {
-  it('merges stage files from cookedbook-ai-open into one plan with stages', async () => {
-    const homedir = require('os').homedir();
-    const result = await loadAllPlans(path.join(homedir, '.gauntlette'));
+  it('merges stage files into one plan with stages', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dominotracker-gauntlette-'));
+    const repoDir = path.join(tmpRoot, 'cookedbook-ai-open');
+    await fs.promises.mkdir(repoDir, { recursive: true });
+
+    const files = [
+      ['survey.md', 'survey'],
+      ['product-review.md', 'product-review'],
+      ['arch-review.md', 'arch-review'],
+      ['fresh-eyes.md', 'fresh-eyes'],
+      ['code-review.md', 'code-review'],
+      ['quality-check.md', 'quality-check'],
+    ];
+
+    for (const [filename, phase] of files) {
+      await fs.promises.writeFile(repoDir + '/' + filename, `---
+status: COMPLETE
+phase: ${phase}
+project: cookedbook-ai-open
+branch: feature-branch
+---
+# ${phase}
+`);
+    }
+
+    const result = await loadAllPlans(tmpRoot);
     const plan = result.plans.find(p => p.project === 'cookedbook-ai-open');
-    assert.ok(plan, 'cookedbook-ai-open plan should exist');
+    assert.ok(plan, 'merged plan should exist');
     assert.ok(plan.stages.length > 0, 'merged plan should have stages');
     assert.strictEqual(plan.stages.length, 11, 'should have all 11 pipeline stages');
     const completed = plan.stages.filter(s => s.visual === 'completed');
-    assert.ok(completed.length >= 5, 'should have at least 5 completed stages');
+    assert.strictEqual(completed.length, 6);
+  });
+});
+
+describe('loadAllGstackPlans', () => {
+  it('keeps the newest gstack workflow per repo and branch', async () => {
+    const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dominotracker-gstack-'));
+    const projectDir = path.join(tmpRoot, 'yah');
+    await fs.promises.mkdir(projectDir, { recursive: true });
+
+    const olderFile = path.join(projectDir, 'older.md');
+    const newerFile = path.join(projectDir, 'newer.md');
+    const ignoredFile = path.join(projectDir, 'notes.md');
+
+    await fs.promises.writeFile(olderFile, `# Older Doc
+
+Generated by /office-hours on 2026-04-16
+Branch: main
+Repo: yah
+Status: APPROVED
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Eng Review | \`/gstack-plan-eng-review\` | Architecture | 1 | CLEAR (PLAN) | 4 issues |`);
+
+    await fs.promises.writeFile(newerFile, `# Newer Doc
+
+Generated by /office-hours on 2026-04-17
+Branch: main
+Repo: yah
+Status: APPROVED
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Eng Review | \`/gstack-plan-eng-review\` | Architecture | 1 | CLEAR (PLAN) | 2 issues |
+| Outside Voice | codex-plan-review | Independent challenge | 1 | ISSUES | 1 tension |`);
+
+    await fs.promises.writeFile(ignoredFile, '# Scratch Notes\n\nNo review report here.\n');
+
+    const now = new Date();
+    const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    await fs.promises.utimes(olderFile, anHourAgo, anHourAgo);
+    await fs.promises.utimes(newerFile, now, now);
+    await fs.promises.utimes(ignoredFile, now, now);
+
+    const result = await loadAllGstackPlans(tmpRoot);
+    assert.strictEqual(result.error, null);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].title, 'Newer Doc');
+    assert.strictEqual(result.plans[0].name, 'main');
+    assert.strictEqual(result.plans[0].stages.length, 2);
   });
 });
 

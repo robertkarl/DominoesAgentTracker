@@ -17,7 +17,7 @@ Watch your AI agent pipelines advance through review stages in real time.
 
 ```bash
 git clone https://github.com/robertkarl/DominoesAgentTracker
-cd /DominoesAgentTracker
+cd DominoesAgentTracker
 node server.js
 ```
 

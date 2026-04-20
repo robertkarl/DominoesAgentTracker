@@ -1,5 +1,5 @@
 ---
-status: IMPLEMENTING
+status: SHIPPED
 planning_mode: BUILDER
 design_doc: /Users/robertkarl/.gauntlette/designs/dominotracker/master-design-20260420-111505.md
 ---
@@ -202,6 +202,6 @@ Note: screenshot.png captured via lookingglass and committed.
 | Code Review | `/gauntlette-code-review` | 1 | PASS | Small diff (3 CSS lines + README). Found and fixed: current-stage highlight logic was marking skipped stages as current (app.js). Fixed README clone URL. Dead z-index on .stage.current noted (harmless). |
 | QA | `/gauntlette-quality-check` | 1 | PASS | 6/6 tests pass. 1 bug found+fixed: screenshot.png excluded by *.png gitignore (README image would 404 on GitHub). Also cleaned up blanket *.jpg/*.png rules. SSE, CSS fix, current-stage highlight all verified. |
 | Human Review | `/gauntlette-human-review` | 0 | — | — |
-| Ship It | `/gauntlette-ship-it` | 0 | — | — |
+| Ship It | `/gauntlette-ship-it` | 1 | DONE | v1.0.0.0 shipped 2026-04-20. 39/39 tests pass. VERSION + CHANGELOG created. GitHub push pending (no remote configured yet). |
 
-**VERDICT:** QA PASS — all checks green. Proceed to /gauntlette-human-review or /gauntlette-ship-it.
+**VERDICT:** SHIPPED v1.0.0.0 — 2026-04-20

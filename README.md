@@ -1,4 +1,4 @@
-# dominotracker
+# Dominoes Agent Tracker
 
 Domino's Pizza Tracker for your [gauntlette](https://github.com/robertkarl/gauntlette) / [gstack](https://github.com/robertkarl/rkstack) pipeline.
 

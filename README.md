@@ -2,6 +2,8 @@
 
 Domino's Pizza Tracker for your [gauntlette](https://github.com/robertkarl/gauntlette) / [gstack](https://github.com/robertkarl/rkstack) pipeline.
 
+I use my own fork of Garry's gstack (https://github.com/garrytan/gstack) that doesn't include the ads, tracking, autoupdate, and lake boiling.
+
 ![dominotracker screenshot](screenshot.png)
 
 Watch your AI agent pipelines advance through review stages in real time.

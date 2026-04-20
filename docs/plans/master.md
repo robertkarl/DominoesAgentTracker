@@ -178,9 +178,10 @@ Files modified:
 Files created:
 - `README.md` — tagline, screenshot placeholder (`screenshot.png`), prerequisites (Node 18+, gauntlette/gstack), install+run instructions, how it works.
 
-Remaining (human gates):
-- **[HUMAN GATE]** User runs `node server.js`, captures screenshot, saves as `screenshot.png` in repo root.
-- `git add screenshot.png && git commit -m "Add screenshot"` + `git tag v1.0.0` + GitHub push
+Remaining:
+- `git tag v1.0.0` + create GitHub repo + `git push origin master --tags`
+
+Note: screenshot.png captured via lookingglass and committed.
 
 ## Priorities
 
@@ -198,9 +199,9 @@ Remaining (human gates):
 | Engineering Review | `/gauntlette-eng-review` | 1 | CLEAR | No architecture changes. CSS fix: remove 3 properties from .stage.current; inherits .stage base correctly. Human gate for screenshot documented. |
 | Fresh Eyes | `/gauntlette-fresh-eyes` | 0 | — | — |
 | Implementation | `/gauntlette-implement` | 1 | DONE | CSS parallelogram fix (3 properties removed from .stage.current), README.md created. 39/39 tests pass. Commit 7fc2eaa. Human gate remaining: screenshot + tag + push. |
-| Code Review | `/gauntlette-code-review` | 0 | — | — |
+| Code Review | `/gauntlette-code-review` | 1 | PASS | Small diff (3 CSS lines + README). Found and fixed: current-stage highlight logic was marking skipped stages as current (app.js). Fixed README clone URL. Dead z-index on .stage.current noted (harmless). |
 | QA | `/gauntlette-quality-check` | 0 | — | — |
 | Human Review | `/gauntlette-human-review` | 0 | — | — |
 | Ship It | `/gauntlette-ship-it` | 0 | — | — |
 
-**VERDICT:** IMPLEMENTING — CSS fix + README committed. Awaiting screenshot, tag, and GitHub push.
+**VERDICT:** REVIEWING — Code review PASS. Proceed to /gauntlette-quality-check or ship.

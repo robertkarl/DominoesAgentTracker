@@ -231,10 +231,6 @@ main {
   background: #e31837;
   color: #fff;
   z-index: 1;
-  /* Angled "active" look inspired by the Domino's bake stage */
-  clip-path: polygon(8% 0%, 100% 0%, 92% 100%, 0% 100%);
-  margin: -1px -4px;
-  padding: 12px 12px;
 }
 
 .stage.skipped {

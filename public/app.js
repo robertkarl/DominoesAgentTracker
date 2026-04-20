@@ -115,12 +115,19 @@
 
     card.appendChild(header);
 
-    // Progress bar — show completed, current, and future stages
-    // Hide: skipped stages (no file, but later stages completed — jumped over)
-    const visibleStages = plan.stages.filter(function (s) {
-      return s.visual === 'completed' || s.visual === 'clear' || s.visual === 'issues' || s.visual === 'pending';
+    // Progress bar — show completed, current, and future stages.
+    // Stages that are pending but appear before the last completed stage were skipped — hide them.
+    const doneVisuals = new Set(['completed', 'clear', 'issues']);
+    var lastDoneIdx = -1;
+    for (var si = 0; si < plan.stages.length; si++) {
+      if (doneVisuals.has(plan.stages[si].visual)) lastDoneIdx = si;
+    }
+    const visibleStages = plan.stages.filter(function (s, idx) {
+      if (doneVisuals.has(s.visual)) return true;
+      if (s.visual === 'pending') return idx > lastDoneIdx;
+      return false; // skipped
     });
-    // Mark the first pending stage as "current" — that's where we are in the pipeline
+    // Mark the first pending stage after completed work as "current"
     var currentFound = false;
     for (var vi = 0; vi < visibleStages.length; vi++) {
       if (visibleStages[vi].visual === 'pending' && !currentFound) {

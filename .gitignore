@@ -2,7 +2,4 @@ node_modules/
 .DS_Store
 *.log
 *.jpg
-*.jpeg
-*.png
-!screenshot.png
 *.txt

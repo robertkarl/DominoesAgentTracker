@@ -1,6 +1,6 @@
 # dominotracker
 
-Domino's Pizza Tracker for your [gauntlette](https://github.com/gauntlette) / [gstack](https://github.com/gauntlette/gstack) pipeline.
+Domino's Pizza Tracker for your [gauntlette](https://github.com/robertkarl/gauntlette) / [gstack](https://github.com/robertkarl/rkstack) pipeline.
 
 ![dominotracker screenshot](screenshot.png)
 
@@ -9,7 +9,7 @@ Watch your AI agent pipelines advance through review stages in real time.
 ## Prerequisites
 
 - Node.js 18+
-- [gauntlette](https://github.com/gauntlette) or [gstack](https://github.com/gauntlette/gstack) installed and actively running pipelines
+- [gauntlette](https://github.com/robertkarl/gauntlette) or [gstack/rkstack](https://github.com/robertkarl/rkstack) (https://github.com/garrytan/gstack) installed and actively running pipelines
 
 ## Install & run
 

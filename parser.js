@@ -193,6 +193,11 @@ function inferStagesFromStatus(planStatus) {
   }));
 }
 
+function parseVerdict(content) {
+  const match = content.match(/\*\*VERDICT:\*\*\s*(.+)/);
+  return match ? match[1].trim() : null;
+}
+
 function classifyStatus(status) {
   if (!status) return 'pending';
   const s = status.toUpperCase();
@@ -224,19 +229,38 @@ async function parsePlan(filePath, options = {}) {
     const nameFromFile = path.basename(filePath, '.md');
     const name = source === GSTACK_SOURCE ? (branch || nameFromFile) : nameFromFile;
 
+    const verdict = parseVerdict(content);
+    const readyToImplement = verdict ? /ready to implement/i.test(verdict) : false;
+
     const isShipped = (metadata.status || '').toUpperCase() === 'SHIPPED';
-    const finalStages = isShipped
-      ? PIPELINE_STAGES.map(stage => ({
-          name: stage.name,
-          trigger: '',
-          runs: 1,
-          status: 'DONE',
-          findings: '—',
-          visual: 'completed',
-        }))
-      : stages.length > 0
-        ? stages.map(stage => ({ ...stage, visual: classifyStatus(stage.status) }))
-        : inferStagesFromStatus(metadata.status);
+    let finalStages;
+    if (isShipped) {
+      finalStages = PIPELINE_STAGES.map(stage => ({
+        name: stage.name,
+        trigger: '',
+        runs: 1,
+        status: 'DONE',
+        findings: '—',
+        visual: 'completed',
+      }));
+    } else if (stages.length > 0) {
+      finalStages = stages.map(stage => ({ ...stage, visual: classifyStatus(stage.status) }));
+      if (source === GSTACK_SOURCE) {
+        const existingNames = new Set(finalStages.map(s => s.name.toLowerCase()));
+        const tail = [
+          { name: 'Implementation', visual: readyToImplement ? 'current' : 'pending' },
+          { name: 'QA', visual: 'pending' },
+          { name: 'Ship', visual: 'pending' },
+        ];
+        for (const t of tail) {
+          if (!existingNames.has(t.name.toLowerCase())) {
+            finalStages.push({ name: t.name, trigger: '', runs: 0, status: '—', findings: '—', visual: t.visual });
+          }
+        }
+      }
+    } else {
+      finalStages = inferStagesFromStatus(metadata.status);
+    }
 
     return {
       source,
@@ -549,6 +573,7 @@ module.exports = {
   parseBranch,
   parseRepo,
   parseGenerator,
+  parseVerdict,
   parseReviewTable,
   classifyStatus,
   inferStagesFromStatus,

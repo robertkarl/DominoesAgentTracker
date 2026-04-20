@@ -115,24 +115,18 @@
 
     card.appendChild(header);
 
-    // Progress bar — show completed, current, and future stages.
-    // Stages that are pending but appear before the last completed stage were skipped — hide them.
+    // Pizza tracker: all stages always visible, current one lights up red.
     const doneVisuals = new Set(['completed', 'clear', 'issues']);
-    var lastDoneIdx = -1;
-    for (var si = 0; si < plan.stages.length; si++) {
-      if (doneVisuals.has(plan.stages[si].visual)) lastDoneIdx = si;
-    }
-    const visibleStages = plan.stages.filter(function (s, idx) {
-      if (doneVisuals.has(s.visual)) return true;
-      if (s.visual === 'pending') return idx > lastDoneIdx;
-      return false; // skipped
-    });
-    // Mark the first pending stage after completed work as "current"
-    var currentFound = false;
-    for (var vi = 0; vi < visibleStages.length; vi++) {
-      if (visibleStages[vi].visual === 'pending' && !currentFound) {
-        visibleStages[vi] = Object.assign({}, visibleStages[vi], { visual: 'current' });
-        currentFound = true;
+    const visibleStages = plan.stages.filter(function (s) { return s.visual !== 'skipped'; });
+
+    // Find or assign the current stage.
+    var hasCurrentStage = visibleStages.some(function (s) { return s.visual === 'current'; });
+    if (!hasCurrentStage) {
+      for (var vi = 0; vi < visibleStages.length; vi++) {
+        if (visibleStages[vi].visual === 'pending') {
+          visibleStages[vi] = Object.assign({}, visibleStages[vi], { visual: 'current' });
+          break;
+        }
       }
     }
     if (visibleStages.length > 0) {

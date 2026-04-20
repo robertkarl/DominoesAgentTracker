@@ -14,7 +14,7 @@ Watch your AI agent pipelines advance through review stages in real time — Sur
 ## Install & run
 
 ```bash
-git clone https://github.com/robertkarl/dominotracker
+git clone https://github.com/robertkarl/DominoesAgentTracker
 cd dominotracker
 node server.js
 ```

@@ -736,50 +736,59 @@ async function loadAllArkPlans(scanRoot) {
     throw err;
   }
 
-  for (const projectEntry of projectDirs) {
-    if (!projectEntry.isDirectory() && !projectEntry.isSymbolicLink()) continue;
-    if (projectEntry.name.startsWith('.')) continue;
+  const projectResults = await Promise.all(
+    projectDirs
+      .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
+      .map(async (projectEntry) => {
+        const projectDir = path.join(resolvedRoot, projectEntry.name);
+        const arkDir = path.join(projectDir, '.ark');
 
-    const projectDir = path.join(resolvedRoot, projectEntry.name);
-    const arkDir = path.join(projectDir, '.ark');
+        let arkStat;
+        try {
+          arkStat = await fs.promises.stat(arkDir);
+        } catch {
+          return null; // No .ark/ directory
+        }
+        if (!arkStat.isDirectory()) return null;
 
-    let arkStat;
-    try {
-      arkStat = await fs.promises.stat(arkDir);
-    } catch {
-      continue; // No .ark/ directory
-    }
-    if (!arkStat.isDirectory()) continue;
+        const projectName = projectEntry.name;
+        const projectPlans = [];
 
-    watchDirs.push(arkDir);
+        // Check for active run (FEATURE.md directly in .ark/)
+        const activeRun = await parseArkRun(arkDir, projectName, false, null);
+        if (activeRun) {
+          projectPlans.push(activeRun);
+        }
 
-    const projectName = projectEntry.name;
+        // Check for archived runs in .ark/archive/*/
+        const archiveDir = path.join(arkDir, 'archive');
+        let archiveEntries;
+        try {
+          archiveEntries = await fs.promises.readdir(archiveDir, { withFileTypes: true });
+        } catch {
+          return { plans: projectPlans, watchDir: arkDir };
+        }
 
-    // Check for active run (FEATURE.md directly in .ark/)
-    const activeRun = await parseArkRun(arkDir, projectName, false, null);
-    if (activeRun) {
-      plans.push(activeRun);
-    }
+        const archivedRuns = await Promise.all(
+          archiveEntries
+            .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
+            .map(async (archiveEntry) => {
+              const runDir = path.join(archiveDir, archiveEntry.name);
+              return parseArkRun(runDir, projectName, true, archiveEntry.name);
+            })
+        );
+        for (const run of archivedRuns) {
+          if (run) projectPlans.push(run);
+        }
 
-    // Check for archived runs in .ark/archive/*/
-    const archiveDir = path.join(arkDir, 'archive');
-    let archiveEntries;
-    try {
-      archiveEntries = await fs.promises.readdir(archiveDir, { withFileTypes: true });
-    } catch {
-      continue; // No archive dir
-    }
+        return { plans: projectPlans, watchDir: arkDir };
+      })
+  );
 
-    for (const archiveEntry of archiveEntries) {
-      if (!archiveEntry.isDirectory() && !archiveEntry.isSymbolicLink()) continue;
-      if (archiveEntry.name.startsWith('.')) continue;
-
-      const runDir = path.join(archiveDir, archiveEntry.name);
-      const archivedRun = await parseArkRun(runDir, projectName, true, archiveEntry.name);
-      if (archivedRun) {
-        plans.push(archivedRun);
-      }
-    }
+  for (const result of projectResults) {
+    if (!result) continue;
+    watchDirs.push(result.watchDir);
+    plans.push(...result.plans);
   }
 
   // Filter: active ark runs always shown (AC-20), shipped only if <24h old (AC-21)

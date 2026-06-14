@@ -27,7 +27,7 @@ Opens `http://localhost:3000` automatically. Override port with `PORT=3001 node 
 
 Use gstack, gstack-sanitized (https://github.com/robertkarl/rkstack) or gauntlette (https://github.com/robertkarl/gauntlette) to implement a feature or create a project.
 
-You'll see the stages proceed in your DOMINOES AGENT TRACKER local website. Wow!
+You'll see the stages proceed in your DOMINOES AGENT TRACKER local website.
 
 ## How it works
 

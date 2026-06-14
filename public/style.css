@@ -139,6 +139,11 @@ main {
   color: #ffb3bf;
 }
 
+.source-badge.ark {
+  background: rgba(168, 85, 247, 0.2);
+  color: #d8b4fe;
+}
+
 .status-badge.active,
 .status-badge.in-progress {
   background: rgba(76, 175, 80, 0.25);

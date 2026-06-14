@@ -3,6 +3,7 @@ const path = require('path');
 
 const GAUNTLETTE_SOURCE = 'gauntlette';
 const GSTACK_SOURCE = 'gstack';
+const ARK_SOURCE = 'ark';
 
 function cleanMetadataValue(value) {
   return value.split('|')[0].trim();
@@ -554,15 +555,268 @@ async function loadAllGstackPlans(gstackProjectsDir) {
   };
 }
 
-async function loadAllWorkflows(gauntletteDir, gstackProjectsDir) {
-  const [gauntlette, gstack] = await Promise.all([
-    loadAllPlans(gauntletteDir),
-    loadAllGstackPlans(gstackProjectsDir),
-  ]);
+// Ark pipeline stages and artifact mapping
+const ARK_STAGES = [
+  { name: 'Spec', artifact: 'SPEC.md' },
+  { name: 'Review Spec', artifact: 'review-spec.md' },
+  { name: 'Encode', artifact: null, glob: /^verify-.*\.mk$/ },
+  { name: 'Review Make', artifact: 'review-make.md' },
+  { name: 'Implement', artifact: 'REVIEW.md' },  // shares artifact with Verify
+  { name: 'Verify', artifact: 'REVIEW.md' },
+  { name: 'Adversarial', artifact: null, alternatives: ['adversarial-claude.md', 'adversarial-codex.md'] },
+  { name: 'Land', artifact: null },  // determined by archive status
+];
+
+const ARK_IGNORED_FILES = new Set(['DRIVER', 'FEATURE.md']);
+
+function isArkIgnoredFile(name) {
+  if (name.startsWith('_prompt_')) return true;
+  if (name.startsWith('.')) return true;
+  if (ARK_IGNORED_FILES.has(name)) return true;
+  return false;
+}
+
+function isArkIgnoredEntry(name) {
+  if (name === '_tests') return true;
+  if (name === 'archive') return true;
+  if (name.startsWith('.')) return true;
+  return false;
+}
+
+function slugifyFeatureTitle(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function arkMapStages(fileSet, isArchived) {
+  const stages = [];
+  let foundFirstMissing = false;
+
+  for (let i = 0; i < ARK_STAGES.length; i++) {
+    const stageDef = ARK_STAGES[i];
+    let hasArtifact = false;
+
+    if (stageDef.name === 'Land') {
+      hasArtifact = isArchived;
+    } else if (stageDef.artifact) {
+      hasArtifact = fileSet.has(stageDef.artifact);
+    } else if (stageDef.glob) {
+      for (const f of fileSet) {
+        if (stageDef.glob.test(f)) { hasArtifact = true; break; }
+      }
+    } else if (stageDef.alternatives) {
+      hasArtifact = stageDef.alternatives.some(a => fileSet.has(a));
+    }
+
+    let visual;
+    if (hasArtifact) {
+      visual = 'completed';
+    } else if (!foundFirstMissing) {
+      visual = 'current';
+      foundFirstMissing = true;
+    } else {
+      visual = 'pending';
+    }
+
+    stages.push({
+      name: stageDef.name,
+      trigger: '',
+      runs: hasArtifact ? 1 : 0,
+      status: hasArtifact ? 'DONE' : '—',
+      findings: '—',
+      visual,
+    });
+  }
+
+  return stages;
+}
+
+async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(arkDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  // Check for FEATURE.md
+  const featurePath = path.join(arkDir, 'FEATURE.md');
+  let featureContent = '';
+  try {
+    featureContent = await fs.promises.readFile(featurePath, 'utf-8');
+  } catch {
+    return null; // No FEATURE.md = skip (AC-5)
+  }
+
+  // Build set of artifact files (excluding ignored)
+  const artifactFiles = new Set();
+  let latestMtime = 0;
+
+  for (const entry of entries) {
+    if (isArkIgnoredFile(entry.name)) continue;
+    if (entry.isDirectory() && isArkIgnoredEntry(entry.name)) continue;
+    if (entry.isDirectory()) continue;
+
+    artifactFiles.add(entry.name);
+
+    try {
+      const stat = await fs.promises.stat(path.join(arkDir, entry.name));
+      if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs;
+    } catch {
+      // ignore stat errors
+    }
+  }
+
+  // Also check FEATURE.md mtime for lastModified (it's not in artifactFiles since it's ignored,
+  // but it IS a meaningful file for modification time)
+  // Actually per AC-13: exclude DRIVER, _prompt_*, _tests/, dot-files. FEATURE.md is NOT excluded.
+  try {
+    const featureStat = await fs.promises.stat(featurePath);
+    if (featureStat.mtimeMs > latestMtime) latestMtime = featureStat.mtimeMs;
+  } catch {
+    // ignore
+  }
+
+  // Derive name (AC-11)
+  let name;
+  if (isArchived && archiveDirName) {
+    // Strip YYYYMMDD-HHMMSS- prefix
+    const match = archiveDirName.match(/^\d{8}-\d{6}-(.+)$/);
+    name = match ? match[1] : archiveDirName;
+  } else {
+    const firstLine = featureContent.split('\n')[0].trim();
+    if (firstLine) {
+      name = slugifyFeatureTitle(firstLine);
+    } else {
+      name = projectName; // AC-25 fallback
+    }
+  }
+
+  // Derive title (AC-12)
+  const firstLine = featureContent.split('\n')[0].trim();
+  const title = firstLine || projectName; // AC-25 fallback
+
+  const stages = arkMapStages(artifactFiles, isArchived);
+  const status = isArchived ? 'SHIPPED' : 'ACTIVE';
 
   return {
-    plans: sortWorkflows([...gauntlette.plans, ...gstack.plans]),
-    error: gauntlette.error || gstack.error || null,
+    source: ARK_SOURCE,
+    repo: projectName,
+    name,
+    filePath: featurePath,
+    lastModified: latestMtime > 0 ? new Date(latestMtime).toISOString() : null,
+    status,
+    phase: null,
+    project: null,
+    title,
+    vision: null,
+    branch: null,
+    generatedBy: null,
+    stages,
+    error: null,
+  };
+}
+
+async function loadAllArkPlans(scanRoot) {
+  const resolvedRoot = path.resolve(scanRoot);
+  const plans = [];
+  const watchDirs = [];
+
+  let projectDirs;
+  try {
+    projectDirs = await fs.promises.readdir(resolvedRoot, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.warn(`WARN: ark scan root does not exist: ${resolvedRoot}`);
+      return { plans: [], error: null, watchDirs: [] };
+    }
+    throw err;
+  }
+
+  for (const projectEntry of projectDirs) {
+    if (!projectEntry.isDirectory() && !projectEntry.isSymbolicLink()) continue;
+    if (projectEntry.name.startsWith('.')) continue;
+
+    const projectDir = path.join(resolvedRoot, projectEntry.name);
+    const arkDir = path.join(projectDir, '.ark');
+
+    let arkStat;
+    try {
+      arkStat = await fs.promises.stat(arkDir);
+    } catch {
+      continue; // No .ark/ directory
+    }
+    if (!arkStat.isDirectory()) continue;
+
+    watchDirs.push(arkDir);
+
+    const projectName = projectEntry.name;
+
+    // Check for active run (FEATURE.md directly in .ark/)
+    const activeRun = await parseArkRun(arkDir, projectName, false, null);
+    if (activeRun) {
+      plans.push(activeRun);
+    }
+
+    // Check for archived runs in .ark/archive/*/
+    const archiveDir = path.join(arkDir, 'archive');
+    let archiveEntries;
+    try {
+      archiveEntries = await fs.promises.readdir(archiveDir, { withFileTypes: true });
+    } catch {
+      continue; // No archive dir
+    }
+
+    for (const archiveEntry of archiveEntries) {
+      if (!archiveEntry.isDirectory() && !archiveEntry.isSymbolicLink()) continue;
+      if (archiveEntry.name.startsWith('.')) continue;
+
+      const runDir = path.join(archiveDir, archiveEntry.name);
+      const archivedRun = await parseArkRun(runDir, projectName, true, archiveEntry.name);
+      if (archivedRun) {
+        plans.push(archivedRun);
+      }
+    }
+  }
+
+  // Filter: active ark runs always shown (AC-20), shipped only if <24h old (AC-21)
+  const now = Date.now();
+  const freshPlans = plans.filter(plan => {
+    if (plan.status === 'ACTIVE') return true;
+    if (plan.status === 'SHIPPED') {
+      const age = plan.lastModified ? (now - new Date(plan.lastModified).getTime()) : Infinity;
+      return age <= 24 * 60 * 60 * 1000;
+    }
+    return false;
+  });
+
+  return {
+    plans: freshPlans,
+    error: null,
+    watchDirs,
+  };
+}
+
+async function loadAllWorkflows(gauntletteDir, gstackProjectsDir, arkScanRoot) {
+  const promises = [
+    loadAllPlans(gauntletteDir),
+    loadAllGstackPlans(gstackProjectsDir),
+  ];
+  if (arkScanRoot) {
+    promises.push(loadAllArkPlans(arkScanRoot));
+  }
+
+  const results = await Promise.all(promises);
+  const [gauntlette, gstack] = results;
+  const ark = results[2] || { plans: [], error: null, watchDirs: [] };
+
+  return {
+    plans: sortWorkflows([...gauntlette.plans, ...gstack.plans, ...ark.plans]),
+    error: gauntlette.error || gstack.error || ark.error || null,
+    arkWatchDirs: ark.watchDirs || [],
   };
 }
 
@@ -579,8 +833,12 @@ module.exports = {
   inferStagesFromStatus,
   mergeStageFiles,
   PIPELINE_STAGES,
+  ARK_STAGES,
   parsePlan,
   loadAllPlans,
   loadAllGstackPlans,
+  loadAllArkPlans,
   loadAllWorkflows,
+  slugifyFeatureTitle,
+  arkMapStages,
 };

@@ -28,7 +28,9 @@
   }
 
   function sourceBadgeClass(source) {
-    return source === 'gstack' ? 'gstack' : 'gauntlette';
+    if (source === 'gstack') return 'gstack';
+    if (source === 'ark') return 'ark';
+    return 'gauntlette';
   }
 
   function renderEmpty(error) {

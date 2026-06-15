@@ -748,3 +748,308 @@ describe('loadAllArkPlans', () => {
     ]);
   });
 });
+
+// ===================== Ark Worktree Tests =====================
+
+describe('loadAllArkPlans (worktree discovery)', () => {
+  // Create a worktree run at <project>/.git/ark-worktrees/<runName>/.ark/.
+  // Pass makeGitDir: false to make .git a file (worktree pointer) instead.
+  async function makeWorktreeRun(root, projectName, runName, files, opts = {}) {
+    const { makeGitDir = true, archiveRuns } = opts;
+    const projectDir = path.join(root, projectName);
+    await fs.promises.mkdir(projectDir, { recursive: true });
+
+    const gitDir = path.join(projectDir, '.git');
+    if (makeGitDir === false) {
+      // .git is a file (e.g. a worktree's gitdir pointer)
+      await fs.promises.writeFile(gitDir, 'gitdir: /somewhere/else\n');
+      return;
+    }
+
+    if (runName) {
+      const arkDir = path.join(gitDir, 'ark-worktrees', runName, '.ark');
+      await fs.promises.mkdir(arkDir, { recursive: true });
+      for (const [name, content] of Object.entries(files || {})) {
+        await fs.promises.writeFile(path.join(arkDir, name), content);
+      }
+      if (archiveRuns) {
+        const archiveDir = path.join(arkDir, 'archive');
+        await fs.promises.mkdir(archiveDir, { recursive: true });
+        for (const [dirName, runFiles] of Object.entries(archiveRuns)) {
+          const runDir = path.join(archiveDir, dirName);
+          await fs.promises.mkdir(runDir, { recursive: true });
+          for (const [name, content] of Object.entries(runFiles)) {
+            await fs.promises.writeFile(path.join(runDir, name), content);
+          }
+        }
+      }
+    } else {
+      // Just create the .git directory with no ark-worktrees/
+      await fs.promises.mkdir(gitDir, { recursive: true });
+    }
+  }
+
+  it('discovers an active worktree run (AC-1, AC-6, AC-7, AC-8, AC-9, AC-10)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'some-run-name-abc123', {
+      'FEATURE.md': 'Detect active worktree runs',
+      'DRIVER': 'driver content',
+      'SPEC.md': '# Spec',
+    });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    const plan = result.plans[0];
+    assert.strictEqual(plan.source, 'ark');
+    assert.strictEqual(plan.repo, 'ark');
+    assert.strictEqual(plan.status, 'ACTIVE');
+    // name/title from FEATURE.md, NOT the worktree dir name (EC-1)
+    assert.strictEqual(plan.name, 'detect-active-worktree-runs');
+    assert.strictEqual(plan.title, 'Detect active worktree runs');
+    assert.strictEqual(plan.stages.length, 8);
+    assert.strictEqual(plan.stages[0].visual, 'completed'); // Spec
+    assert.strictEqual(plan.stages[1].visual, 'current');   // Review Spec
+    assert.ok(plan.lastModified, 'should have lastModified');
+  });
+
+  it('shows only the first stage as current for a FEATURE.md-only worktree run (AC-10)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Bare run' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].stages[0].visual, 'current');
+    assert.strictEqual(result.plans[0].stages[1].visual, 'pending');
+  });
+
+  it('discovers multiple worktree runs in one project (AC-2)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Run one' });
+    await makeWorktreeRun(root, 'ark', 'run-2', { 'FEATURE.md': 'Run two' });
+    await makeWorktreeRun(root, 'ark', 'run-3', { 'FEATURE.md': 'Run three' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 3);
+    const titles = result.plans.map(p => p.title).sort();
+    assert.deepStrictEqual(titles, ['Run one', 'Run three', 'Run two']);
+  });
+
+  it('discovers worktree runs in addition to top-level runs (AC-3)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    // Top-level run
+    const projectDir = path.join(root, 'ark');
+    const topArk = path.join(projectDir, '.ark');
+    await fs.promises.mkdir(topArk, { recursive: true });
+    await fs.promises.writeFile(path.join(topArk, 'FEATURE.md'), 'Top level feature');
+    // Worktree run in the same project
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Worktree feature' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 2);
+    const titles = result.plans.map(p => p.title).sort();
+    assert.deepStrictEqual(titles, ['Top level feature', 'Worktree feature']);
+  });
+
+  it('reports worktree runs from multiple projects together (AC-4)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'a1', { 'FEATURE.md': 'Ark one' });
+    await makeWorktreeRun(root, 'ark', 'a2', { 'FEATURE.md': 'Ark two' });
+    await makeWorktreeRun(root, 'ark', 'a3', { 'FEATURE.md': 'Ark three' });
+    await makeWorktreeRun(root, 'regina', 'r1', { 'FEATURE.md': 'Regina one' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 4);
+    assert.strictEqual(result.plans.filter(p => p.repo === 'ark').length, 3);
+    assert.strictEqual(result.plans.filter(p => p.repo === 'regina').length, 1);
+  });
+
+  it('skips worktree .ark/ without a FEATURE.md (AC-5)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'DRIVER': 'just a driver' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 0);
+  });
+
+  it('advances stages as worktree artifacts appear (AC-10)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', {
+      'FEATURE.md': 'Advancing run',
+      'SPEC.md': '# Spec',
+      'review-spec.md': '# Review spec',
+    });
+
+    const result = await loadAllArkPlans(root);
+    const plan = result.plans[0];
+    assert.strictEqual(plan.stages[0].visual, 'completed'); // Spec
+    assert.strictEqual(plan.stages[1].visual, 'completed'); // Review Spec
+    assert.strictEqual(plan.stages[2].visual, 'current');   // Encode (first missing)
+  });
+
+  it('excludes ignored files/dirs from worktree stage mapping (AC-12)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', {
+      'FEATURE.md': 'Ignored files run',
+      'DRIVER': 'driver',
+      '_prompt_spec.md': 'prompt',
+      '.hidden': 'dotfile',
+    });
+    const testsDir = path.join(root, 'ark', '.git', 'ark-worktrees', 'run-1', '.ark', '_tests');
+    await fs.promises.mkdir(testsDir, { recursive: true });
+    await fs.promises.writeFile(path.join(testsDir, 't.js'), 'x');
+
+    const result = await loadAllArkPlans(root);
+    // None of the ignored files count as artifacts, so Spec is still current.
+    assert.strictEqual(result.plans[0].stages[0].visual, 'current');
+  });
+
+  it('FEATURE.md mtime contributes to lastModified (AC-11)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Mtime run' });
+    const featurePath = path.join(root, 'ark', '.git', 'ark-worktrees', 'run-1', '.ark', 'FEATURE.md');
+    const t = new Date('2026-05-01T12:00:00Z');
+    await fs.promises.utimes(featurePath, t, t);
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans[0].lastModified, t.toISOString());
+  });
+
+  it('reports archived worktree runs as SHIPPED (EC-2)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    // Worktree .ark/ has no active FEATURE.md but has an archive
+    await makeWorktreeRun(root, 'ark', 'run-1', {}, {
+      archiveRuns: {
+        '20260613-145300-shipped-thing-abc123': {
+          'FEATURE.md': 'Shipped thing',
+          'SPEC.md': '# Spec',
+        },
+      },
+    });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].status, 'SHIPPED');
+    assert.strictEqual(result.plans[0].name, 'shipped-thing-abc123');
+  });
+
+  it('reports both active and archived runs in a worktree .ark/ (EC-2)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Active run' }, {
+      archiveRuns: {
+        '20260613-145300-old-run-abc123': { 'FEATURE.md': 'Old run', 'SPEC.md': '# x' },
+      },
+    });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 2);
+    assert.strictEqual(result.plans.filter(p => p.status === 'ACTIVE').length, 1);
+    assert.strictEqual(result.plans.filter(p => p.status === 'SHIPPED').length, 1);
+  });
+
+  it('falls back to project name for empty worktree FEATURE.md (EC-3)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': '   \n  \n' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].name, 'ark');
+    assert.strictEqual(result.plans[0].title, 'ark');
+  });
+
+  it('includes worktree .ark/ in watchDirs (AC-15)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Watched run' });
+
+    const result = await loadAllArkPlans(root);
+    const expected = path.join(root, 'ark', '.git', 'ark-worktrees', 'run-1', '.ark');
+    assert.ok(result.watchDirs.includes(expected), 'worktree .ark/ should be in watchDirs');
+  });
+
+  it('drops removed worktree .ark/ from watchDirs and runs (AC-16a, AC-16b)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Soon gone' });
+    const worktreeDir = path.join(root, 'ark', '.git', 'ark-worktrees', 'run-1');
+    const arkDir = path.join(worktreeDir, '.ark');
+
+    let result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.ok(result.watchDirs.includes(arkDir));
+
+    // Remove the worktree
+    await fs.promises.rm(worktreeDir, { recursive: true, force: true });
+
+    result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 0);
+    assert.ok(!result.watchDirs.includes(arkDir), 'removed .ark/ should drop out of watchDirs');
+  });
+
+  it('handles a project whose .git is a file (AC-17)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', null, null, { makeGitDir: false });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 0);
+    assert.strictEqual(result.error, null);
+  });
+
+  it('handles a project with no .git directory (AC-17)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await fs.promises.mkdir(path.join(root, 'plain-project'), { recursive: true });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 0);
+    assert.strictEqual(result.error, null);
+  });
+
+  it('handles .git directory with no ark-worktrees/ (AC-18)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', null, null); // creates .git/ but no ark-worktrees/
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 0);
+    assert.strictEqual(result.error, null);
+  });
+
+  it('skips a non-directory entry under ark-worktrees/ (AC-19)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    const worktreesDir = path.join(root, 'ark', '.git', 'ark-worktrees');
+    await fs.promises.mkdir(worktreesDir, { recursive: true });
+    await fs.promises.writeFile(path.join(worktreesDir, 'stray-file'), 'not a dir');
+    // A valid run alongside the stray file
+    await makeWorktreeRun(root, 'ark', 'good-run', { 'FEATURE.md': 'Good run' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].title, 'Good run');
+  });
+
+  it('skips a worktree entry lacking an .ark/ subdirectory (AC-19)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    const worktreesDir = path.join(root, 'ark', '.git', 'ark-worktrees');
+    await fs.promises.mkdir(path.join(worktreesDir, 'no-ark-here'), { recursive: true });
+    await makeWorktreeRun(root, 'ark', 'good-run', { 'FEATURE.md': 'Good run' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].title, 'Good run');
+  });
+
+  it('reports colliding top-level and worktree runs as two distinct runs (AC-24)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    // Identical FEATURE.md first line in both top-level and worktree .ark/
+    const projectDir = path.join(root, 'ark');
+    const topArk = path.join(projectDir, '.ark');
+    await fs.promises.mkdir(topArk, { recursive: true });
+    await fs.promises.writeFile(path.join(topArk, 'FEATURE.md'), 'Same title');
+    await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Same title' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 2);
+    assert.strictEqual(result.plans[0].name, result.plans[1].name); // collide
+    assert.strictEqual(result.plans[0].title, 'Same title');
+    assert.strictEqual(result.plans[1].title, 'Same title');
+    // Distinct .ark/ paths => distinct runs
+    const featurePaths = new Set(result.plans.map(p => p.filePath));
+    assert.strictEqual(featurePaths.size, 2);
+  });
+});

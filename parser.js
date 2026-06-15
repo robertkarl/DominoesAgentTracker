@@ -720,6 +720,90 @@ async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
   };
 }
 
+// Scan a single .ark/ directory (whether top-level or inside a worktree) for an
+// active run plus any archived runs. Returns { plans, watchDir } or null if the
+// directory is not a usable .ark/ directory. The watchDir is always returned (so
+// the server watches it) whenever the .ark/ directory itself exists, even if it
+// currently has no runs.
+async function scanArkDir(arkDir, projectName) {
+  let arkStat;
+  try {
+    arkStat = await fs.promises.stat(arkDir);
+  } catch {
+    return null; // No .ark/ directory
+  }
+  if (!arkStat.isDirectory()) return null;
+
+  const dirPlans = [];
+
+  // Check for active run (FEATURE.md directly in .ark/)
+  const activeRun = await parseArkRun(arkDir, projectName, false, null);
+  if (activeRun) {
+    dirPlans.push(activeRun);
+  }
+
+  // Check for archived runs in .ark/archive/*/
+  const archiveDir = path.join(arkDir, 'archive');
+  let archiveEntries;
+  try {
+    archiveEntries = await fs.promises.readdir(archiveDir, { withFileTypes: true });
+  } catch {
+    return { plans: dirPlans, watchDir: arkDir };
+  }
+
+  const archivedRuns = await Promise.all(
+    archiveEntries
+      .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
+      .map(async (archiveEntry) => {
+        const runDir = path.join(archiveDir, archiveEntry.name);
+        return parseArkRun(runDir, projectName, true, archiveEntry.name);
+      })
+  );
+  for (const run of archivedRuns) {
+    if (run) dirPlans.push(run);
+  }
+
+  return { plans: dirPlans, watchDir: arkDir };
+}
+
+// Discover ARK runs living inside git worktrees at
+// <project>/.git/ark-worktrees/<run-name>/.ark/. Returns an array of
+// { plans, watchDir } results, one per worktree .ark/ directory found.
+async function scanWorktreeArkDirs(projectDir, projectName) {
+  // <project>/.git must be a directory (a real repo). When .git is a file (the
+  // project is itself a worktree pointer) or missing entirely, there are no
+  // worktrees to scan here (AC-17).
+  const gitDir = path.join(projectDir, '.git');
+  let gitStat;
+  try {
+    gitStat = await fs.promises.stat(gitDir);
+  } catch {
+    return []; // No .git (AC-17)
+  }
+  if (!gitStat.isDirectory()) return []; // .git is a file/worktree pointer (AC-17)
+
+  const worktreesDir = path.join(gitDir, 'ark-worktrees');
+  let worktreeEntries;
+  try {
+    worktreeEntries = await fs.promises.readdir(worktreesDir, { withFileTypes: true });
+  } catch {
+    return []; // No ark-worktrees/ subdirectory (AC-18)
+  }
+
+  const results = await Promise.all(
+    worktreeEntries
+      .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
+      .map(async (entry) => {
+        // Each entry under .git/ark-worktrees/ that is not a directory, or lacks
+        // an .ark/ subdirectory, is skipped without error (AC-19).
+        const worktreeArkDir = path.join(worktreesDir, entry.name, '.ark');
+        return scanArkDir(worktreeArkDir, projectName);
+      })
+  );
+
+  return results.filter(Boolean);
+}
+
 async function loadAllArkPlans(scanRoot) {
   const resolvedRoot = path.resolve(scanRoot);
   const plans = [];
@@ -741,54 +825,30 @@ async function loadAllArkPlans(scanRoot) {
       .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
       .map(async (projectEntry) => {
         const projectDir = path.join(resolvedRoot, projectEntry.name);
-        const arkDir = path.join(projectDir, '.ark');
-
-        let arkStat;
-        try {
-          arkStat = await fs.promises.stat(arkDir);
-        } catch {
-          return null; // No .ark/ directory
-        }
-        if (!arkStat.isDirectory()) return null;
-
         const projectName = projectEntry.name;
-        const projectPlans = [];
 
-        // Check for active run (FEATURE.md directly in .ark/)
-        const activeRun = await parseArkRun(arkDir, projectName, false, null);
-        if (activeRun) {
-          projectPlans.push(activeRun);
-        }
+        // Top-level run at <project>/.ark/ and worktree runs at
+        // <project>/.git/ark-worktrees/*/.ark/ are scanned in parallel (EC-5).
+        const [topLevel, worktreeResults] = await Promise.all([
+          scanArkDir(path.join(projectDir, '.ark'), projectName),
+          scanWorktreeArkDirs(projectDir, projectName),
+        ]);
 
-        // Check for archived runs in .ark/archive/*/
-        const archiveDir = path.join(arkDir, 'archive');
-        let archiveEntries;
-        try {
-          archiveEntries = await fs.promises.readdir(archiveDir, { withFileTypes: true });
-        } catch {
-          return { plans: projectPlans, watchDir: arkDir };
-        }
-
-        const archivedRuns = await Promise.all(
-          archiveEntries
-            .filter(e => (e.isDirectory() || e.isSymbolicLink()) && !e.name.startsWith('.'))
-            .map(async (archiveEntry) => {
-              const runDir = path.join(archiveDir, archiveEntry.name);
-              return parseArkRun(runDir, projectName, true, archiveEntry.name);
-            })
-        );
-        for (const run of archivedRuns) {
-          if (run) projectPlans.push(run);
-        }
-
-        return { plans: projectPlans, watchDir: arkDir };
+        // Each result is keyed by its .ark/ directory's absolute path (AC-24),
+        // so top-level and worktree runs never merge even when their derived
+        // name/title collide.
+        const dirResults = [];
+        if (topLevel) dirResults.push(topLevel);
+        dirResults.push(...worktreeResults);
+        return dirResults;
       })
   );
 
-  for (const result of projectResults) {
-    if (!result) continue;
-    watchDirs.push(result.watchDir);
-    plans.push(...result.plans);
+  for (const dirResults of projectResults) {
+    for (const result of dirResults) {
+      watchDirs.push(result.watchDir);
+      plans.push(...result.plans);
+    }
   }
 
   // Filter: active ark runs always shown (AC-20), shipped only if <24h old (AC-21)

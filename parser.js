@@ -563,7 +563,8 @@ const ARK_STAGES = [
   { name: 'Review Make', artifact: 'review-make.md' },
   { name: 'Implement', artifact: 'REVIEW.md' },  // shares artifact with Verify
   { name: 'Verify', artifact: 'REVIEW.md' },
-  { name: 'Adversarial', artifact: null, alternatives: ['adversarial-claude.md', 'adversarial-codex.md'] },
+  // Matches both unnumbered (adversarial-claude.md) and numbered (adversarial-codex-1.md) review reports
+  { name: 'Adversarial', artifact: null, glob: /^adversarial-.+\.md$/ },
   { name: 'Land', artifact: null },  // determined by archive status
 ];
 
@@ -581,6 +582,15 @@ function isArkIgnoredEntry(name) {
   if (name === 'archive') return true;
   if (name.startsWith('.')) return true;
   return false;
+}
+
+// First non-empty (after trim) line of the content, or '' if none (AC-8)
+function firstNonEmptyLine(content) {
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
 }
 
 function slugifyFeatureTitle(title) {
@@ -607,8 +617,6 @@ function arkMapStages(fileSet, isArchived) {
       for (const f of fileSet) {
         if (stageDef.glob.test(f)) { hasArtifact = true; break; }
       }
-    } else if (stageDef.alternatives) {
-      hasArtifact = stageDef.alternatives.some(a => fileSet.has(a));
     }
 
     let visual;
@@ -687,17 +695,17 @@ async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
     const match = archiveDirName.match(/^\d{8}-\d{6}-(.+)$/);
     name = match ? match[1] : archiveDirName;
   } else {
-    const firstLine = featureContent.split('\n')[0].trim();
+    const firstLine = firstNonEmptyLine(featureContent);
     if (firstLine) {
       name = slugifyFeatureTitle(firstLine);
     } else {
-      name = projectName; // AC-25 fallback
+      name = projectName; // AC-9 fallback
     }
   }
 
-  // Derive title (AC-12)
-  const firstLine = featureContent.split('\n')[0].trim();
-  const title = firstLine || projectName; // AC-25 fallback
+  // Derive title (AC-8: first non-empty line of FEATURE.md)
+  const firstLine = firstNonEmptyLine(featureContent);
+  const title = firstLine || projectName; // AC-8 fallback
 
   const stages = arkMapStages(artifactFiles, isArchived);
   const status = isArchived ? 'SHIPPED' : 'ACTIVE';

@@ -504,6 +504,20 @@ describe('arkMapStages', () => {
     assert.strictEqual(stages[7].visual, 'current');   // Land (not archived)
   });
 
+  it('detects Adversarial via numbered report (adversarial-codex-1.md)', () => {
+    const files = new Set(['SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md', 'adversarial-codex-1.md']);
+    const stages = arkMapStages(files, false);
+    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial
+    assert.strictEqual(stages[6].name, 'Adversarial');
+    assert.strictEqual(stages[7].visual, 'current');   // Land (not archived)
+  });
+
+  it('detects Adversarial via numbered claude report (adversarial-claude-1.md)', () => {
+    const files = new Set(['SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md', 'adversarial-claude-1.md']);
+    const stages = arkMapStages(files, false);
+    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial
+  });
+
   it('marks Land as completed only for archived runs', () => {
     const files = new Set(['SPEC.md']);
     const notArchived = arkMapStages(files, false);
@@ -658,6 +672,17 @@ describe('loadAllArkPlans', () => {
     const result = await loadAllArkPlans(root);
     assert.strictEqual(result.plans[0].title, 'First line title');
     assert.strictEqual(result.plans[0].name, 'first-line-title');
+  });
+
+  it('derives title/name from first non-empty line, skipping leading blank lines (AC-8/AC-9)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-'));
+    await makeArkProject(root, 'leading-blanks', {
+      'FEATURE.md': '\n\n   \nThe Real Title\nmore detail',
+    });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans[0].title, 'The Real Title');
+    assert.strictEqual(result.plans[0].name, 'the-real-title');
   });
 
   it('active runs always shown regardless of age (AC-20)', async () => {

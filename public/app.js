@@ -66,8 +66,14 @@
 
     const name = document.createElement('div');
     name.className = 'stage-name';
-    name.textContent = stage.name;
-    name.title = stage.name + ': ' + stage.status;
+    // Surface the review-fix iteration count on the Adversarial stage (e.g. "ADVERSARIAL ×2").
+    var label = stage.name;
+    if (stage.iteration && stage.iteration > 1) {
+      label = stage.name + ' ×' + stage.iteration;
+    }
+    name.textContent = label;
+    name.title = stage.name + ': ' + stage.status
+      + (stage.iteration ? ' (review-fix iteration ' + stage.iteration + ')' : '');
     div.appendChild(name);
 
     return div;

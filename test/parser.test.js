@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, mergeStageFiles, PIPELINE_STAGES, ARK_STAGES, parsePlan, loadAllPlans, loadAllGstackPlans, loadAllArkPlans, slugifyFeatureTitle, arkMapStages } = require('../parser');
+const { parseFrontmatter, parseTitle, parseVision, parseBranch, parseReviewTable, classifyStatus, mergeStageFiles, PIPELINE_STAGES, ARK_STAGES, parsePlan, loadAllPlans, loadAllGstackPlans, loadAllArkPlans, slugifyFeatureTitle, arkMapStages, arkAdversarialIteration } = require('../parser');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 
@@ -496,26 +496,53 @@ describe('arkMapStages', () => {
     assert.strictEqual(stages[2].name, 'Encode');
   });
 
-  it('detects Adversarial via adversarial-codex.md', () => {
+  it('detects Adversarial via unnumbered adversarial-codex.md (held as current, iter 1)', () => {
     const files = new Set(['SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md', 'adversarial-codex.md']);
     const stages = arkMapStages(files, false);
-    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial
     assert.strictEqual(stages[6].name, 'Adversarial');
-    assert.strictEqual(stages[7].visual, 'current');   // Land (not archived)
+    assert.strictEqual(stages[6].visual, 'current'); // active run loops on Adversarial
+    assert.strictEqual(stages[6].iteration, 1);
+    assert.strictEqual(stages[7].visual, 'pending'); // Land stays pending until archive
   });
 
-  it('detects Adversarial via numbered report (adversarial-codex-1.md)', () => {
+  it('holds Adversarial as current (not Land) for an active run mid review-fix loop', () => {
+    // adversarial-*.md exists but the run is not archived: the agent loops back to
+    // Adversarial after each fix, so Land must NOT be promoted to current.
     const files = new Set(['SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md', 'adversarial-codex-1.md']);
     const stages = arkMapStages(files, false);
-    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial
     assert.strictEqual(stages[6].name, 'Adversarial');
-    assert.strictEqual(stages[7].visual, 'current');   // Land (not archived)
+    assert.strictEqual(stages[6].visual, 'current'); // active stage stays on Adversarial
+    assert.strictEqual(stages[7].visual, 'pending'); // Land stays pending until archive
   });
 
   it('detects Adversarial via numbered claude report (adversarial-claude-1.md)', () => {
     const files = new Set(['SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md', 'adversarial-claude-1.md']);
     const stages = arkMapStages(files, false);
-    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial
+    assert.strictEqual(stages[6].visual, 'current');  // Adversarial held as current
+    assert.strictEqual(stages[6].iteration, 1);
+  });
+
+  it('surfaces the highest review-fix iteration on the Adversarial stage', () => {
+    const files = new Set([
+      'SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md',
+      'adversarial-claude-1.md', 'adversarial-codex-1.md',
+      'adversarial-claude-2.md', 'adversarial-codex-2.md',
+    ]);
+    const stages = arkMapStages(files, false);
+    assert.strictEqual(stages[6].iteration, 2);
+    assert.strictEqual(stages[6].visual, 'current');
+    assert.strictEqual(stages[7].visual, 'pending');
+  });
+
+  it('Adversarial completes and Land lands once the run is archived', () => {
+    const files = new Set([
+      'SPEC.md', 'review-spec.md', 'verify-spec.mk', 'review-make.md', 'REVIEW.md',
+      'adversarial-claude-2.md', 'adversarial-codex-2.md',
+    ]);
+    const stages = arkMapStages(files, true);
+    assert.strictEqual(stages[6].visual, 'completed'); // Adversarial done
+    assert.strictEqual(stages[6].iteration, 2);
+    assert.strictEqual(stages[7].visual, 'completed'); // Land done
   });
 
   it('marks Land as completed only for archived runs', () => {
@@ -532,6 +559,30 @@ describe('arkMapStages', () => {
     const stages = arkMapStages(files, false);
     assert.strictEqual(stages[0].visual, 'current');  // Spec
     assert.strictEqual(stages[1].visual, 'pending');  // Review Spec
+  });
+});
+
+describe('arkAdversarialIteration', () => {
+  it('returns 0 when no adversarial report exists', () => {
+    assert.strictEqual(arkAdversarialIteration(new Set(['SPEC.md', 'REVIEW.md'])), 0);
+  });
+
+  it('counts an unnumbered report as iteration 1', () => {
+    assert.strictEqual(arkAdversarialIteration(new Set(['adversarial-claude.md'])), 1);
+  });
+
+  it('returns the highest numbered iteration across drivers', () => {
+    const files = new Set([
+      'adversarial-claude-1.md', 'adversarial-codex-1.md',
+      'adversarial-claude-2.md', 'adversarial-codex-2.md',
+      'adversarial-claude-3.md',
+    ]);
+    assert.strictEqual(arkAdversarialIteration(files), 3);
+  });
+
+  it('ignores _prompt_ files and non-adversarial names', () => {
+    const files = new Set(['_prompt_adversarial-claude.md', 'review-spec.md']);
+    assert.strictEqual(arkAdversarialIteration(files), 0);
   });
 });
 

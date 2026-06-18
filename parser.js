@@ -601,9 +601,27 @@ function slugifyFeatureTitle(title) {
     .replace(/-{2,}/g, '-');
 }
 
+// Count review-fix iterations from adversarial-*.md files. Each iteration writes
+// adversarial-<driver>-<N>.md (e.g. adversarial-claude-2.md); the iteration count
+// is the highest N seen. Unnumbered files (adversarial-claude.md) count as
+// iteration 1. Returns 0 when no adversarial report exists yet.
+function arkAdversarialIteration(fileSet) {
+  let maxIter = 0;
+  for (const f of fileSet) {
+    const numbered = f.match(/^adversarial-.+-(\d+)\.md$/);
+    if (numbered) {
+      maxIter = Math.max(maxIter, parseInt(numbered[1], 10));
+    } else if (/^adversarial-.+\.md$/.test(f)) {
+      maxIter = Math.max(maxIter, 1);
+    }
+  }
+  return maxIter;
+}
+
 function arkMapStages(fileSet, isArchived) {
   const stages = [];
   let foundFirstMissing = false;
+  const adversarialIteration = arkAdversarialIteration(fileSet);
 
   for (let i = 0; i < ARK_STAGES.length; i++) {
     const stageDef = ARK_STAGES[i];
@@ -629,14 +647,32 @@ function arkMapStages(fileSet, isArchived) {
       visual = 'pending';
     }
 
-    stages.push({
+    // The adversarial->fix-review loop means the agent keeps returning to
+    // Adversarial after each fix; once any adversarial report exists, Adversarial
+    // is "done" by artifact, which would otherwise promote Land to current even
+    // though the run is still iterating. For a non-archived (active) run, hold the
+    // active marker on Adversarial and keep Land pending until the run archives.
+    if (!isArchived && stageDef.name === 'Adversarial' && adversarialIteration > 0) {
+      visual = 'current';
+      foundFirstMissing = true; // Land (and anything after) stays pending
+    }
+
+    const stage = {
       name: stageDef.name,
       trigger: '',
       runs: hasArtifact ? 1 : 0,
       status: hasArtifact ? 'DONE' : '—',
       findings: '—',
       visual,
-    });
+    };
+
+    // Surface the review-fix iteration count on the Adversarial stage so the UI
+    // can render e.g. "ADVERSARIAL ×2".
+    if (stageDef.name === 'Adversarial' && adversarialIteration > 0) {
+      stage.iteration = adversarialIteration;
+    }
+
+    stages.push(stage);
   }
 
   return stages;
@@ -948,4 +984,5 @@ module.exports = {
   loadAllWorkflows,
   slugifyFeatureTitle,
   arkMapStages,
+  arkAdversarialIteration,
 };

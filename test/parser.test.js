@@ -847,6 +847,42 @@ describe('loadAllArkPlans (worktree discovery)', () => {
     assert.strictEqual(result.plans[0].stages[1].visual, 'pending');
   });
 
+  it('derives tmuxSession as ark-<worktree-dir> for active worktree runs', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'my-run-abc123', { 'FEATURE.md': 'A run' });
+
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].tmuxSession, 'ark-my-run-abc123');
+  });
+
+  it('drops an ACTIVE worktree run whose tmux session is dead', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'dead-run-abc123', { 'FEATURE.md': 'Dead run' });
+
+    // Live session set does NOT include ark-dead-run-abc123 -> nuked.
+    const result = await loadAllArkPlans(root, new Set(['ark-some-other-run']));
+    assert.strictEqual(result.plans.length, 0);
+  });
+
+  it('keeps an ACTIVE worktree run whose tmux session is live', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'live-run-abc123', { 'FEATURE.md': 'Live run' });
+
+    const result = await loadAllArkPlans(root, new Set(['ark-live-run-abc123']));
+    assert.strictEqual(result.plans.length, 1);
+    assert.strictEqual(result.plans[0].tmuxSession, 'ark-live-run-abc123');
+  });
+
+  it('leaves runs alone when liveTmuxSessions is not provided (tmux unknown)', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
+    await makeWorktreeRun(root, 'ark', 'unknown-run-abc123', { 'FEATURE.md': 'Run' });
+
+    // No session set passed -> behave as before, do not nuke.
+    const result = await loadAllArkPlans(root);
+    assert.strictEqual(result.plans.length, 1);
+  });
+
   it('discovers multiple worktree runs in one project (AC-2)', async () => {
     const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dat-ark-wt-'));
     await makeWorktreeRun(root, 'ark', 'run-1', { 'FEATURE.md': 'Run one' });

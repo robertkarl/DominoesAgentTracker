@@ -821,7 +821,12 @@ async function scanWorktreeArkDirs(projectDir, projectName) {
   return { results: results.filter(Boolean), containerDir: worktreesDir };
 }
 
-async function loadAllArkPlans(scanRoot) {
+// liveTmuxSessions: optional Set of session names currently live (from `tmux ls`).
+// When provided, an ACTIVE worktree run whose tmux session is gone is dropped
+// entirely — ark marks a run ACTIVE purely from .ark/FEATURE.md, so a run can
+// linger as ACTIVE long after its agent (and tmux session) has exited. No live
+// session means the agent is gone; the run is dead and not worth showing.
+async function loadAllArkPlans(scanRoot, liveTmuxSessions) {
   const resolvedRoot = path.resolve(scanRoot);
   const plans = [];
   const watchDirs = [];
@@ -873,10 +878,19 @@ async function loadAllArkPlans(scanRoot) {
     }
   }
 
-  // Filter: active ark runs always shown (AC-20), shipped only if <24h old (AC-21)
+  // Filter: active ark runs shown (AC-20), shipped only if <24h old (AC-21).
+  // An ACTIVE worktree run with a known-dead tmux session is nuked: its agent has
+  // exited, so the run is dead, not active. Only applied when we have a live-session
+  // set AND the run carries a tmuxSession (worktree runs); top-level runs without a
+  // session are left alone.
   const now = Date.now();
   const freshPlans = plans.filter(plan => {
-    if (plan.status === 'ACTIVE') return true;
+    if (plan.status === 'ACTIVE') {
+      if (liveTmuxSessions && plan.tmuxSession && !liveTmuxSessions.has(plan.tmuxSession)) {
+        return false; // dead session -> stale run
+      }
+      return true;
+    }
     if (plan.status === 'SHIPPED') {
       const age = plan.lastModified ? (now - new Date(plan.lastModified).getTime()) : Infinity;
       return age <= 24 * 60 * 60 * 1000;
@@ -892,13 +906,13 @@ async function loadAllArkPlans(scanRoot) {
   };
 }
 
-async function loadAllWorkflows(gauntletteDir, gstackProjectsDir, arkScanRoot) {
+async function loadAllWorkflows(gauntletteDir, gstackProjectsDir, arkScanRoot, liveTmuxSessions) {
   const promises = [
     loadAllPlans(gauntletteDir),
     loadAllGstackPlans(gstackProjectsDir),
   ];
   if (arkScanRoot) {
-    promises.push(loadAllArkPlans(arkScanRoot));
+    promises.push(loadAllArkPlans(arkScanRoot, liveTmuxSessions));
   }
 
   const results = await Promise.all(promises);

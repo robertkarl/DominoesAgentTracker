@@ -77,6 +77,27 @@ function updateArkWatchers(watchDirs, containerWatchDirs) {
   }
 }
 
+// Resolve the set of live tmux session names (from `tmux ls`). Returns null when
+// tmux isn't available or errors — null means "don't know", so the parser leaves
+// runs alone rather than nuking everything when tmux is simply not running.
+function getLiveTmuxSessions() {
+  return new Promise((resolve) => {
+    exec('tmux ls -F "#{session_name}"', (err, stdout) => {
+      if (err) {
+        // Exit code 1 with "no server running" is normal when no sessions exist —
+        // that's a real empty set, not unknown. Distinguish by stderr/message.
+        if (/no server running|no current session/i.test(err.message || '')) {
+          resolve(new Set());
+          return;
+        }
+        resolve(null); // tmux missing or unexpected failure -> unknown
+        return;
+      }
+      resolve(new Set(stdout.split('\n').map(s => s.trim()).filter(Boolean)));
+    });
+  });
+}
+
 async function refreshPlans() {
   // If a scan is already running, mark that another is needed and wait for the
   // current one — the trailing run below will pick up whatever changed.
@@ -87,7 +108,8 @@ async function refreshPlans() {
 
   refreshInFlight = (async () => {
     try {
-      const result = await loadAllWorkflows(GAUNTLETTE_DIR, GSTACK_PROJECTS_DIR, ARK_SCAN_ROOT);
+      const liveTmuxSessions = await getLiveTmuxSessions();
+      const result = await loadAllWorkflows(GAUNTLETTE_DIR, GSTACK_PROJECTS_DIR, ARK_SCAN_ROOT, liveTmuxSessions);
       cachedPlans = { plans: result.plans, error: result.error };
       updateArkWatchers(result.arkWatchDirs || [], result.arkContainerWatchDirs || []);
     } catch (err) {

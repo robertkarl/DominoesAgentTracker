@@ -642,7 +642,7 @@ function arkMapStages(fileSet, isArchived) {
   return stages;
 }
 
-async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
+async function parseArkRun(arkDir, projectName, isArchived, archiveDirName, tmuxSession) {
   let entries;
   try {
     entries = await fs.promises.readdir(arkDir, { withFileTypes: true });
@@ -723,6 +723,7 @@ async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
     vision: null,
     branch: null,
     generatedBy: null,
+    tmuxSession: tmuxSession || null,
     stages,
     error: null,
   };
@@ -733,7 +734,7 @@ async function parseArkRun(arkDir, projectName, isArchived, archiveDirName) {
 // directory is not a usable .ark/ directory. The watchDir is always returned (so
 // the server watches it) whenever the .ark/ directory itself exists, even if it
 // currently has no runs.
-async function scanArkDir(arkDir, projectName) {
+async function scanArkDir(arkDir, projectName, tmuxSession) {
   let arkStat;
   try {
     arkStat = await fs.promises.stat(arkDir);
@@ -744,8 +745,9 @@ async function scanArkDir(arkDir, projectName) {
 
   const dirPlans = [];
 
-  // Check for active run (FEATURE.md directly in .ark/)
-  const activeRun = await parseArkRun(arkDir, projectName, false, null);
+  // Check for active run (FEATURE.md directly in .ark/). Only the active run has a
+  // live tmux session — archived runs are finished, so they get no session.
+  const activeRun = await parseArkRun(arkDir, projectName, false, null, tmuxSession);
   if (activeRun) {
     dirPlans.push(activeRun);
   }
@@ -775,8 +777,11 @@ async function scanArkDir(arkDir, projectName) {
 }
 
 // Discover ARK runs living inside git worktrees at
-// <project>/.git/ark-worktrees/<run-name>/.ark/. Returns an array of
-// { plans, watchDir } results, one per worktree .ark/ directory found.
+// <project>/.git/ark-worktrees/<run-name>/.ark/. Returns
+// { results, containerDir } where results is an array of { plans, watchDir }
+// (one per worktree .ark/ directory found) and containerDir is the
+// ark-worktrees/ directory itself (to watch for runs being added/removed), or
+// null when this project has no ark-worktrees/ directory.
 async function scanWorktreeArkDirs(projectDir, projectName) {
   // <project>/.git must be a directory (a real repo). When .git is a file (the
   // project is itself a worktree pointer) or missing entirely, there are no
@@ -786,16 +791,16 @@ async function scanWorktreeArkDirs(projectDir, projectName) {
   try {
     gitStat = await fs.promises.stat(gitDir);
   } catch {
-    return []; // No .git (AC-17)
+    return { results: [], containerDir: null }; // No .git (AC-17)
   }
-  if (!gitStat.isDirectory()) return []; // .git is a file/worktree pointer (AC-17)
+  if (!gitStat.isDirectory()) return { results: [], containerDir: null }; // .git is a file/worktree pointer (AC-17)
 
   const worktreesDir = path.join(gitDir, 'ark-worktrees');
   let worktreeEntries;
   try {
     worktreeEntries = await fs.promises.readdir(worktreesDir, { withFileTypes: true });
   } catch {
-    return []; // No ark-worktrees/ subdirectory (AC-18)
+    return { results: [], containerDir: null }; // No ark-worktrees/ subdirectory (AC-18)
   }
 
   const results = await Promise.all(
@@ -805,17 +810,25 @@ async function scanWorktreeArkDirs(projectDir, projectName) {
         // Each entry under .git/ark-worktrees/ that is not a directory, or lacks
         // an .ark/ subdirectory, is skipped without error (AC-19).
         const worktreeArkDir = path.join(worktreesDir, entry.name, '.ark');
-        return scanArkDir(worktreeArkDir, projectName);
+        // The tmux session for a worktree run is named ark-<worktree-dir-name>.
+        const tmuxSession = `ark-${entry.name}`;
+        return scanArkDir(worktreeArkDir, projectName, tmuxSession);
       })
   );
 
-  return results.filter(Boolean);
+  // The ark-worktrees/ directory exists (readdir succeeded), so watch it to catch
+  // runs being created or removed even when no run currently has an .ark/ dir.
+  return { results: results.filter(Boolean), containerDir: worktreesDir };
 }
 
 async function loadAllArkPlans(scanRoot) {
   const resolvedRoot = path.resolve(scanRoot);
   const plans = [];
   const watchDirs = [];
+  // Container dirs are watched non-recursively to detect runs/projects appearing
+  // or disappearing (new worktree, archived run, new project) — the per-run leaf
+  // watchers only catch changes inside an already-known .ark/ directory.
+  const containerWatchDirs = [resolvedRoot];
 
   let projectDirs;
   try {
@@ -847,12 +860,13 @@ async function loadAllArkPlans(scanRoot) {
         // name/title collide.
         const dirResults = [];
         if (topLevel) dirResults.push(topLevel);
-        dirResults.push(...worktreeResults);
-        return dirResults;
+        dirResults.push(...worktreeResults.results);
+        return { dirResults, containerDir: worktreeResults.containerDir };
       })
   );
 
-  for (const dirResults of projectResults) {
+  for (const { dirResults, containerDir } of projectResults) {
+    if (containerDir) containerWatchDirs.push(containerDir);
     for (const result of dirResults) {
       watchDirs.push(result.watchDir);
       plans.push(...result.plans);
@@ -874,6 +888,7 @@ async function loadAllArkPlans(scanRoot) {
     plans: freshPlans,
     error: null,
     watchDirs,
+    containerWatchDirs,
   };
 }
 
@@ -888,12 +903,13 @@ async function loadAllWorkflows(gauntletteDir, gstackProjectsDir, arkScanRoot) {
 
   const results = await Promise.all(promises);
   const [gauntlette, gstack] = results;
-  const ark = results[2] || { plans: [], error: null, watchDirs: [] };
+  const ark = results[2] || { plans: [], error: null, watchDirs: [], containerWatchDirs: [] };
 
   return {
     plans: sortWorkflows([...gauntlette.plans, ...gstack.plans, ...ark.plans]),
     error: gauntlette.error || gstack.error || ark.error || null,
     arkWatchDirs: ark.watchDirs || [],
+    arkContainerWatchDirs: ark.containerWatchDirs || [],
   };
 }
 

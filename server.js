@@ -23,7 +23,14 @@ let cachedPlans = { plans: [], error: null };
 const sseClients = new Set();
 let debounceTimer = null;
 let refreshInFlight = null;
+// Set when an fs event arrives while a refresh is already running. The in-flight
+// scan may have started before that change hit disk, so we run one more refresh
+// when it finishes rather than dropping the event (which would leave the
+// dashboard stale until the next poll or a manual reload).
+let refreshRequested = false;
 const arkWatchers = new Map(); // arkDir -> fs.FSWatcher
+const staticWatchers = new Map(); // dirPath -> { watcher, recursive } for the always-watched dirs
+const REARM_INTERVAL_MS = 6 * 60 * 60 * 1000; // periodically rebuild watchers (see rearmWatchers)
 
 function broadcastPlans() {
   const data = JSON.stringify(cachedPlans);
@@ -36,8 +43,18 @@ function broadcastPlans() {
   }
 }
 
-function updateArkWatchers(watchDirs) {
-  const desired = new Set(watchDirs);
+// Leaf .ark/ dirs are watched recursively (changes inside a run). Container dirs
+// (the scan root and each ark-worktrees/) are watched non-recursively to catch
+// runs/projects appearing or disappearing without scanning the whole tree — a
+// recursive watch on the scan root would traverse all of ~/Code.
+function updateArkWatchers(watchDirs, containerWatchDirs) {
+  const desired = new Map(); // dir -> { recursive }
+  for (const dir of watchDirs) desired.set(dir, { recursive: true });
+  // Container dirs win over leaf entries only if not already present; a dir is
+  // never both, so order does not matter in practice.
+  for (const dir of containerWatchDirs) {
+    if (!desired.has(dir)) desired.set(dir, { recursive: false });
+  }
 
   // Remove watchers for dirs no longer needed
   for (const [dir, watcher] of arkWatchers) {
@@ -48,10 +65,10 @@ function updateArkWatchers(watchDirs) {
   }
 
   // Add watchers for new dirs
-  for (const dir of desired) {
+  for (const [dir, opts] of desired) {
     if (!arkWatchers.has(dir)) {
       try {
-        const watcher = fs.watch(dir, { recursive: true }, scheduleRefresh);
+        const watcher = fs.watch(dir, { recursive: opts.recursive }, scheduleRefresh);
         arkWatchers.set(dir, watcher);
       } catch (err) {
         console.warn(`WARN: fs.watch failed for ark dir ${dir}: ${err.message}`);
@@ -61,13 +78,18 @@ function updateArkWatchers(watchDirs) {
 }
 
 async function refreshPlans() {
-  if (refreshInFlight) return refreshInFlight;
+  // If a scan is already running, mark that another is needed and wait for the
+  // current one — the trailing run below will pick up whatever changed.
+  if (refreshInFlight) {
+    refreshRequested = true;
+    return refreshInFlight;
+  }
 
   refreshInFlight = (async () => {
     try {
       const result = await loadAllWorkflows(GAUNTLETTE_DIR, GSTACK_PROJECTS_DIR, ARK_SCAN_ROOT);
       cachedPlans = { plans: result.plans, error: result.error };
-      updateArkWatchers(result.arkWatchDirs || []);
+      updateArkWatchers(result.arkWatchDirs || [], result.arkContainerWatchDirs || []);
     } catch (err) {
       console.error(`ERROR refreshing plans: ${err.message}`);
       cachedPlans = { plans: [], error: err.message };
@@ -79,6 +101,12 @@ async function refreshPlans() {
     await refreshInFlight;
   } finally {
     refreshInFlight = null;
+  }
+
+  // An event arrived mid-scan; run exactly one more pass to catch it.
+  if (refreshRequested) {
+    refreshRequested = false;
+    return refreshPlans();
   }
 }
 
@@ -106,7 +134,66 @@ function serveStatic(req, res) {
   });
 }
 
+// Open a new iTerm2 window attached to the given tmux session. The session name
+// is validated against the known live sessions (tmux ls) before use, so the value
+// is never interpolated into a shell command unchecked.
+function attachTmuxSession(session, callback) {
+  exec('tmux ls -F "#{session_name}"', (err, stdout) => {
+    if (err) {
+      callback(new Error('tmux not running or no sessions'));
+      return;
+    }
+    const sessions = stdout.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!sessions.includes(session)) {
+      callback(new Error(`no live tmux session named ${session}`));
+      return;
+    }
+
+    // session is now known-good (exact match against a live session name), so it is
+    // safe to embed. Escape single quotes defensively for the nested AppleScript string.
+    const cmd = `tmux attach -t ${session}`.replace(/'/g, `'\\''`);
+    const script =
+      `tell application "iTerm2" to create window with default profile\n` +
+      `tell application "iTerm2" to tell current session of current window to write text "${cmd.replace(/"/g, '\\"')}"`;
+    const osa = `osascript -e '${script.replace(/\n/g, "' -e '")}'`;
+    exec(osa, (osaErr) => callback(osaErr || null));
+  });
+}
+
 const server = http.createServer(async (req, res) => {
+  if (req.url === '/api/attach' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1024) req.destroy(); // guard against oversized bodies
+    });
+    req.on('end', () => {
+      let session;
+      try {
+        session = JSON.parse(body).session;
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'invalid JSON' }));
+        return;
+      }
+      if (!session || typeof session !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'missing session' }));
+        return;
+      }
+      attachTmuxSession(session, (err) => {
+        if (err) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      });
+    });
+    return;
+  }
+
   if (req.url === '/api/plans') {
     await refreshPlans();
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -140,11 +227,41 @@ function scheduleRefresh() {
 }
 
 function watchDirectory(dirPath, label) {
+  // Close any existing watcher for this dir first so re-arming replaces rather
+  // than leaks the stream.
+  const existing = staticWatchers.get(dirPath);
+  if (existing) {
+    try { existing.watcher.close(); } catch { /* already closed */ }
+    staticWatchers.delete(dirPath);
+  }
   try {
-    fs.watch(dirPath, { recursive: true }, scheduleRefresh);
+    const watcher = fs.watch(dirPath, { recursive: true }, scheduleRefresh);
+    staticWatchers.set(dirPath, { watcher, recursive: true });
   } catch (err) {
     console.warn(`WARN: fs.watch failed for ${label}: ${err.message}`);
   }
+}
+
+// macOS fs.watch (FSEvents) watchers go stale over long uptimes — when a watched
+// directory is torn down and recreated (e.g. ark rebuilding a worktree), the
+// underlying stream keeps pointing at a dead inode and silently stops firing.
+// The 60s poll masks this but leaves the UI laggy. Periodically close every
+// watcher and rebuild it against the current tree, then refresh so any change
+// missed while a watcher was dead is reflected immediately.
+function rearmWatchers() {
+  for (const watcher of arkWatchers.values()) {
+    try { watcher.close(); } catch { /* already closed */ }
+  }
+  arkWatchers.clear();
+
+  // Re-arm the static dirs (watchDirectory closes the old watcher first).
+  watchDirectory(GAUNTLETTE_DIR, GAUNTLETTE_DIR);
+  watchDirectory(GSTACK_PROJECTS_DIR, GSTACK_PROJECTS_DIR);
+
+  // refreshPlans rebuilds the ark watchers via updateArkWatchers and broadcasts.
+  refreshPlans().catch((err) => {
+    console.error(`ERROR refreshing plans during re-arm: ${err.message}`);
+  });
 }
 
 watchDirectory(GAUNTLETTE_DIR, GAUNTLETTE_DIR);
@@ -155,6 +272,8 @@ setInterval(() => {
     console.error(`ERROR refreshing plans: ${err.message}`);
   });
 }, REFRESH_INTERVAL_MS);
+
+setInterval(rearmWatchers, REARM_INTERVAL_MS);
 
 // Start
 refreshPlans().then(() => {

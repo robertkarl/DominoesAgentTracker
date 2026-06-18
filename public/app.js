@@ -113,6 +113,41 @@
     badge.textContent = plan.status;
     badges.appendChild(badge);
 
+    if (plan.tmuxSession) {
+      const attach = document.createElement('button');
+      attach.className = 'attach-btn';
+      attach.type = 'button';
+      attach.textContent = '⧉ tmux';
+      attach.title = 'Attach to ' + plan.tmuxSession;
+      attach.addEventListener('click', function () {
+        attach.disabled = true;
+        fetch('/api/attach', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: plan.tmuxSession }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (!res.ok) {
+              attach.textContent = '✕ ' + (res.error || 'failed');
+              attach.classList.add('attach-error');
+            }
+          })
+          .catch(function () {
+            attach.textContent = '✕ error';
+            attach.classList.add('attach-error');
+          })
+          .finally(function () {
+            setTimeout(function () {
+              attach.disabled = false;
+              attach.textContent = '⧉ tmux';
+              attach.classList.remove('attach-error');
+            }, 2000);
+          });
+      });
+      badges.appendChild(attach);
+    }
+
     header.appendChild(badges);
 
     card.appendChild(header);
